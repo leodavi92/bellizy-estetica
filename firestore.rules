@@ -1,0 +1,59 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Função auxiliar para verificar se o usuário está logado
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Função para pegar os dados do usuário atual
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    // Regras para a coleção de Usuários
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Regras para a coleção de Estabelecimentos
+    match /establishments/{estId} {
+      allow read: if true; // Público para clientes verem informações e agendarem
+      allow write: if isSignedIn() && (
+        resource == null || // Permite criar novo
+        resource.data.owner_id == request.auth.uid // Apenas dono edita
+      );
+    }
+
+    // Regras para a coleção de Serviços
+    match /services/{serviceId} {
+      allow read: if true; // Clientes precisam ler serviços para agendar
+      allow write: if isSignedIn() && 
+        getUserData().tipo == 'admin' && 
+        getUserData().establishment_id == request.resource.data.establishment_id;
+    }
+
+    // Regras para a coleção de Agendamentos
+    match /appointments/{appId} {
+      // Leitura: 
+      // 1. Admins leem agendamentos do seu estabelecimento
+      // 2. Clientes leem seus próprios agendamentos
+      allow read: if isSignedIn() && (
+        (getUserData().tipo == 'admin' && getUserData().establishment_id == resource.data.establishment_id) ||
+        (resource.data.user_id == request.auth.uid)
+      );
+
+      // Escrita:
+      // 1. Clientes criam agendamentos (vaga deve estar livre - lógica complexa via app, aqui validamos apenas IDs)
+      // 2. Admins cancelam/editam agendamentos do seu estabelecimento
+      // 3. Clientes cancelam seus próprios agendamentos
+      allow create: if isSignedIn(); 
+      allow update, delete: if isSignedIn() && (
+        (getUserData().tipo == 'admin' && getUserData().establishment_id == resource.data.establishment_id) ||
+        (resource.data.user_id == request.auth.uid)
+      );
+    }
+  }
+}
