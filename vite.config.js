@@ -10,9 +10,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
       manifest: {
-        name: 'Patrícia Estética',
-        short_name: 'Estética',
-        description: 'Agendamento de Depilação Profissional',
+        name: 'Bellizy',
+        short_name: 'Bellizy',
+        description: 'Agendamento de Estética Profissional',
         theme_color: '#db2777',
         icons: [
           {
