@@ -17,6 +17,7 @@ import {
   onSnapshot
 } from 'firebase/firestore';
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { uploadToSupabase } from '../services/supabase';
 import { format, startOfDay, endOfDay, isSameDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { 
@@ -388,15 +389,13 @@ export default function AdminDashboard() {
     try {
       setLogoUploading(true);
       const filePath = `establishments/${establishment.id}/logo-${Date.now()}`;
-      const fileRef = storageRef(storage, filePath);
-      await uploadBytes(fileRef, file);
-      const url = await getDownloadURL(fileRef);
+      const url = await uploadToSupabase(file, 'photos', filePath);
       await updateDoc(doc(db, 'establishments', establishment.id), { logo_url: url });
       setProfileInfo(prev => ({ ...prev, logo_url: url }));
-      alert('Logo atualizada!');
+      alert('Logo atualizada via Supabase!');
     } catch (error) {
       console.error('Erro ao enviar logo:', error);
-      alert('Não foi possível enviar a logo. Verifique o Firebase Storage.');
+      alert('Não foi possível enviar a logo para o Supabase.');
     } finally {
       setLogoUploading(false);
     }
@@ -407,15 +406,13 @@ export default function AdminDashboard() {
     try {
       setPhotoUploading(true);
       const filePath = `users/${user.uid}/profile-${Date.now()}`;
-      const fileRef = storageRef(storage, filePath);
-      await uploadBytes(fileRef, file);
-      const url = await getDownloadURL(fileRef);
+      const url = await uploadToSupabase(file, 'photos', filePath);
       await updateDoc(doc(db, 'users', user.uid), { photoURL: url });
       setProfileInfo(prev => ({ ...prev, photoURL: url }));
-      alert('Foto de perfil atualizada!');
+      alert('Foto de perfil atualizada via Supabase!');
     } catch (error) {
       console.error('Erro ao enviar foto:', error);
-      alert('Não foi possível enviar a foto. Verifique o Firebase Storage.');
+      alert('Não foi possível enviar a foto para o Supabase.');
     } finally {
       setPhotoUploading(false);
     }

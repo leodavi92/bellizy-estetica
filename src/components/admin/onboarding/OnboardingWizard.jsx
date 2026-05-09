@@ -18,6 +18,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { db, storage } from '../../../services/firebase';
 import { doc, updateDoc, collection, addDoc, Timestamp } from 'firebase/firestore';
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { uploadToSupabase } from '../../../services/supabase';
 import BusinessInfoStep from './BusinessInfoStep';
 import WeeklyAvailabilityEditor from '../settings/WeeklyAvailabilityEditor';
 import CancellationPolicySettings from '../settings/CancellationPolicySettings';
@@ -157,13 +158,11 @@ export default function OnboardingWizard({ establishment }) {
     try {
       setLogoUploading(true);
       const filePath = `establishments/${establishment.id}/logo-${Date.now()}`;
-      const fileRef = storageRef(storage, filePath);
-      await uploadBytes(fileRef, file);
-      const url = await getDownloadURL(fileRef);
+      const url = await uploadToSupabase(file, 'photos', filePath);
       setLogoUrl(url);
     } catch (error) {
       console.error('Erro ao enviar foto:', error);
-      alert('Não foi possível enviar a foto. Verifique sua conexão.');
+      alert('Não foi possível enviar a foto para o Supabase.');
     } finally {
       setLogoUploading(false);
       // Limpa o input para permitir selecionar o mesmo arquivo novamente se necessário
