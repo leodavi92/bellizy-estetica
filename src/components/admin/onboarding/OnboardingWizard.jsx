@@ -15,8 +15,9 @@ import {
   Store
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { db } from '../../../services/firebase';
+import { db, storage } from '../../../services/firebase';
 import { doc, updateDoc, collection, addDoc, Timestamp } from 'firebase/firestore';
+import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import BusinessInfoStep from './BusinessInfoStep';
 import WeeklyAvailabilityEditor from '../settings/WeeklyAvailabilityEditor';
 import CancellationPolicySettings from '../settings/CancellationPolicySettings';
@@ -24,6 +25,7 @@ import CancellationPolicySettings from '../settings/CancellationPolicySettings';
 export default function OnboardingWizard({ establishment }) {
   const [activeStep, setActiveStep] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [logoUploading, setLogoUploading] = useState(false);
   
   // Bloquear rolagem do body quando um modal estiver aberto
   useEffect(() => {
@@ -132,16 +134,40 @@ export default function OnboardingWizard({ establishment }) {
 
   const [logoUrl, setLogoUrl] = useState(establishment?.logo_url || '');
   const handleSaveLogo = async () => {
-    if (!logoUrl.trim()) return alert("Adicione a URL da imagem.");
+    if (!establishment?.id) return;
     try {
       setLoading(true);
-      const estRef = doc(db, 'establishments', establishment.id);
-      await updateDoc(estRef, { logo_url: logoUrl });
-      await updateStepStatus('logo');
+      await updateDoc(doc(db, 'establishments', establishment.id), {
+        logo_url: logoUrl,
+        [`setup_steps.logo`]: true
+      });
+      updateStepStatus('logo');
     } catch (error) {
-      alert("Erro ao salvar logo.");
+      console.error(error);
+      alert('Erro ao salvar logo');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !establishment?.id) return;
+
+    try {
+      setLogoUploading(true);
+      const filePath = `establishments/${establishment.id}/logo-${Date.now()}`;
+      const fileRef = storageRef(storage, filePath);
+      await uploadBytes(fileRef, file);
+      const url = await getDownloadURL(fileRef);
+      setLogoUrl(url);
+    } catch (error) {
+      console.error('Erro ao enviar foto:', error);
+      alert('Não foi possível enviar a foto. Verifique sua conexão.');
+    } finally {
+      setLogoUploading(false);
+      // Limpa o input para permitir selecionar o mesmo arquivo novamente se necessário
+      e.target.value = '';
     }
   };
 
@@ -374,22 +400,52 @@ export default function OnboardingWizard({ establishment }) {
                       <p className="text-xs text-gray-500 font-medium">Sua marca no topo.</p>
                     </div>
 
-                    <div className="space-y-4 text-center">
-                      {logoUrl && (
-                        <div className="w-24 h-24 mx-auto rounded-full border-4 border-pink-100 p-1 overflow-hidden">
-                          <img src={logoUrl} alt="Preview" className="w-full h-full object-cover rounded-full" />
+                    <div className="space-y-6 text-center">
+                      <div className="relative group">
+                        <div className="w-32 h-32 mx-auto rounded-full border-4 border-white bg-pink-50 p-1 overflow-hidden shadow-xl shadow-pink-100/50 flex items-center justify-center">
+                          {logoUrl ? (
+                            <img src={logoUrl} alt="Preview" className="w-full h-full object-cover rounded-full" />
+                          ) : (
+                            <div className="w-full h-full rounded-full flex items-center justify-center bg-pink-50 text-pink-300">
+                              <ImageIcon size={40} strokeWidth={1.5} />
+                            </div>
+                          )}
+                          
+                          {logoUploading && (
+                            <div className="absolute inset-0 bg-white/70 flex items-center justify-center rounded-full backdrop-blur-[1px]">
+                              <div className="w-8 h-8 border-3 border-pink-200 border-t-pink-600 rounded-full animate-spin"></div>
+                            </div>
+                          )}
                         </div>
-                      )}
+
+                        <label 
+                          htmlFor="onboarding-logo-upload"
+                          className="absolute bottom-0 right-1/2 translate-x-12 translate-y-1 w-10 h-10 bg-slate-950 text-white rounded-2xl flex items-center justify-center shadow-lg cursor-pointer hover:bg-slate-800 transition-all active:scale-90"
+                        >
+                          <PlusCircle size={20} />
+                          <input
+                            id="onboarding-logo-upload"
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={handleFileUpload}
+                            disabled={logoUploading}
+                          />
+                        </label>
+                      </div>
                       
-                      <div className="space-y-1.5 text-left">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-pink-600 ml-2">Link da Imagem</label>
-                        <input
-                          type="url"
-                          placeholder="https://..."
-                          value={logoUrl}
-                          onChange={(e) => setLogoUrl(e.target.value)}
-                          className="w-full p-4 bg-pink-50/50 border-2 border-transparent rounded-2xl outline-none focus:border-pink-300 transition-all font-bold text-gray-700 text-sm"
-                        />
+                      <div className="space-y-3">
+                        <div className="h-px bg-gray-100 w-full" />
+                        <div className="space-y-1.5 text-left">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-2">Ou use um Link da Imagem</label>
+                          <input
+                            type="url"
+                            placeholder="https://..."
+                            value={logoUrl}
+                            onChange={(e) => setLogoUrl(e.target.value)}
+                            className="w-full p-4 bg-gray-50 border-2 border-transparent rounded-2xl outline-none focus:border-pink-300 transition-all font-bold text-gray-700 text-sm"
+                          />
+                        </div>
                       </div>
                     </div>
 

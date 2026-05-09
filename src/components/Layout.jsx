@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeftRight, LogOut, User, Calendar, Home, Phone } from 'lucide-react';
+import { ArrowLeftRight, LogOut, User, Calendar, Home, Phone, MessageCircleMore } from 'lucide-react';
 import InstallPWA from './InstallPWA';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../services/firebase';
+import { getWhatsAppUrl } from '../services/establishmentService';
 
 export default function Layout({ children }) {
-  const { user, setUser, logout } = useAuth();
+  const { user, setUser, establishment, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [clientSetupOpen, setClientSetupOpen] = useState(false);
@@ -25,6 +26,7 @@ export default function Layout({ children }) {
   const isHomeRoute = location.pathname === `/${currentSlug}`;
   const isAppointmentsRoute = location.pathname.includes('/agenda');
   const isProfileRoute = location.pathname.includes('/perfil');
+  const isBookingRoute = location.pathname.includes('/agendar');
 
   const handleHomeNavigation = () => {
     if (!currentSlug) return;
@@ -96,41 +98,88 @@ export default function Layout({ children }) {
     );
   }
 
+  const isClientView =
+    location.pathname !== '/' &&
+    location.pathname !== '/login' &&
+    !location.pathname.startsWith('/admin');
+
   return (
     <div className="min-h-screen bg-pink-50 flex flex-col font-sans">
       <header className="bg-white/80 backdrop-blur-md border-b-2 border-pink-200 px-4 py-3 sticky top-0 z-30 shadow-sm">
         <div className="max-w-4xl mx-auto flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-pink-500 to-rose-600 rounded-2xl flex items-center justify-center text-white font-black shadow-lg shadow-pink-200 rotate-3">
+          <button 
+            onClick={handleHomeNavigation}
+            className="flex items-center gap-3 group transition-all"
+          >
+            <div className="w-10 h-10 bg-gradient-to-br from-pink-500 to-rose-600 rounded-2xl flex items-center justify-center text-white font-black shadow-lg shadow-pink-200 rotate-3 group-hover:rotate-0 transition-transform">
               P
             </div>
-            <div>
+            <div className="text-left">
               <h1 className="text-lg font-black text-gray-800 leading-none tracking-tight">Bellizy</h1>
               <span className="text-[10px] text-pink-600 font-bold uppercase tracking-widest">Estética & Bem-estar</span>
             </div>
-          </div>
+          </button>
           
-          <div className="flex items-center gap-2">
-            {canSwitchEstablishment && (
-              <button
-                type="button"
-                onClick={() => navigate('/')}
-                className="w-10 h-10 flex items-center justify-center bg-gray-50 text-gray-500 hover:text-pink-600 hover:bg-pink-50 rounded-xl transition-all border border-gray-100"
-                title="Trocar estética"
-              >
-                <ArrowLeftRight size={18} />
-              </button>
+          <div className="flex items-center gap-4">
+            {/* Desktop Navigation - Apenas Logados */}
+            {isClientView && !isBookingRoute && user && (
+              <nav className="hidden sm:flex items-center gap-1 bg-gray-50 p-1 rounded-2xl border border-gray-100">
+                <button
+                  onClick={handleHomeNavigation}
+                  className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${
+                    isHomeRoute ? 'bg-white text-pink-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'
+                  }`}
+                >
+                  Início
+                </button>
+                <button
+                  onClick={handleAgendaNavigation}
+                  className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${
+                    isAppointmentsRoute ? 'bg-white text-pink-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'
+                  }`}
+                >
+                  Agenda
+                </button>
+                <button
+                  onClick={handleProfileNavigation}
+                  className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${
+                    isProfileRoute ? 'bg-white text-pink-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'
+                  }`}
+                >
+                  Perfil
+                </button>
+              </nav>
             )}
 
-            {user && (
-              <button 
-                onClick={logout}
-                className="w-10 h-10 flex items-center justify-center bg-gray-50 text-gray-400 hover:text-pink-600 hover:bg-pink-50 rounded-xl transition-all border border-gray-100"
-                title="Sair"
-              >
-                <LogOut size={18} />
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              {canSwitchEstablishment && (
+                <button
+                  type="button"
+                  onClick={() => navigate('/')}
+                  className="w-10 h-10 flex items-center justify-center bg-gray-50 text-gray-500 hover:text-pink-600 hover:bg-pink-50 rounded-xl transition-all border border-gray-100"
+                  title="Trocar estética"
+                >
+                  <ArrowLeftRight size={18} />
+                </button>
+              )}
+
+              {user ? (
+                <button 
+                  onClick={logout}
+                  className="w-10 h-10 flex items-center justify-center bg-gray-50 text-gray-400 hover:text-pink-600 hover:bg-pink-50 rounded-xl transition-all border border-gray-100"
+                  title="Sair"
+                >
+                  <LogOut size={18} />
+                </button>
+              ) : (
+                <button
+                  onClick={() => navigate('/login')}
+                  className="px-4 py-2 bg-slate-950 text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-800 transition-all"
+                >
+                  Entrar
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </header>
@@ -141,8 +190,25 @@ export default function Layout({ children }) {
 
       <InstallPWA />
 
-      {/* Navegação Mobile - Apenas para Clientes */}
-      {user?.tipo === 'cliente' && (
+      {/* Botão WhatsApp Flutuante */}
+      {isClientView && establishment?.telefone && (
+        <a
+          href={getWhatsAppUrl(establishment.telefone)}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`fixed right-6 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500 text-white shadow-2xl transition-all hover:scale-110 active:scale-95 ${
+            isBookingRoute ? 'bottom-24' : 'bottom-28 sm:bottom-10'
+          }`}
+          title="Conversar no WhatsApp"
+        >
+          <MessageCircleMore size={28} />
+          <span className="absolute -right-1 -top-1 flex h-4 w-4 animate-ping rounded-full bg-emerald-400" />
+          <span className="absolute -right-1 -top-1 h-4 w-4 rounded-full bg-emerald-500 border-2 border-white" />
+        </a>
+      )}
+
+      {/* Navegação Mobile - Visível apenas para Logados */}
+      {isClientView && !isBookingRoute && user && (
         <nav className="fixed bottom-6 left-6 right-6 bg-white/90 backdrop-blur-lg border border-pink-100 px-6 py-4 rounded-[2.5rem] shadow-2xl z-40 sm:hidden">
           <div className="flex justify-around items-center">
             <button

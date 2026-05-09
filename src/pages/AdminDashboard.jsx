@@ -78,6 +78,7 @@ export default function AdminDashboard() {
   const [slugSaved, setSlugSaved] = useState(false);
   const [isPolicyOpen, setIsPolicyOpen] = useState(false);
   const [logoUploading, setLogoUploading] = useState(false);
+  const [photoUploading, setPhotoUploading] = useState(false);
 
   // Sincroniza tempSlug quando o estabelecimento carregar
   useEffect(() => {
@@ -102,6 +103,7 @@ export default function AdminDashboard() {
     telefone: '',
     descricao: '',
     logo_url: '',
+    photoURL: '',
     banner_url: '',
     instagram: '',
     horario_funcionamento: '',
@@ -116,6 +118,7 @@ export default function AdminDashboard() {
         telefone: establishment.telefone || establishment.phone || '',
         descricao: establishment.descricao || '',
         logo_url: establishment.logo_url || '',
+        photoURL: user?.photoURL || establishment.photoURL || '',
         banner_url: establishment.banner_url || '',
         instagram: establishment.instagram || '',
         horario_funcionamento: establishment.horario_funcionamento || '',
@@ -127,7 +130,7 @@ export default function AdminDashboard() {
         dias_trabalho: [1, 2, 3, 4, 5, 6]
       });
     }
-  }, [establishment]);
+  }, [establishment, user?.photoURL]);
 
   // ESCUTA EM TEMPO REAL: Monitora todos os serviços do estabelecimento
   useEffect(() => {
@@ -327,6 +330,7 @@ export default function AdminDashboard() {
         phone: profileInfo.telefone,
         descricao: profileInfo.descricao.trim(),
         logo_url: profileInfo.logo_url,
+        photoURL: profileInfo.photoURL,
         instagram: profileInfo.instagram
       };
 
@@ -337,7 +341,8 @@ export default function AdminDashboard() {
       await updateDoc(doc(db, 'users', user.uid), { 
         nome: profileInfo.nome,
         endereco: profileInfo.endereco,
-        telefone: profileInfo.telefone
+        telefone: profileInfo.telefone,
+        photoURL: profileInfo.photoURL
       });
 
       alert("Configurações salvas com sucesso!");
@@ -394,6 +399,25 @@ export default function AdminDashboard() {
       alert('Não foi possível enviar a logo. Verifique o Firebase Storage.');
     } finally {
       setLogoUploading(false);
+    }
+  };
+
+  const handleUploadPhoto = async (file) => {
+    if (!file || !user?.uid) return;
+    try {
+      setPhotoUploading(true);
+      const filePath = `users/${user.uid}/profile-${Date.now()}`;
+      const fileRef = storageRef(storage, filePath);
+      await uploadBytes(fileRef, file);
+      const url = await getDownloadURL(fileRef);
+      await updateDoc(doc(db, 'users', user.uid), { photoURL: url });
+      setProfileInfo(prev => ({ ...prev, photoURL: url }));
+      alert('Foto de perfil atualizada!');
+    } catch (error) {
+      console.error('Erro ao enviar foto:', error);
+      alert('Não foi possível enviar a foto. Verifique o Firebase Storage.');
+    } finally {
+      setPhotoUploading(false);
     }
   };
 
@@ -997,6 +1021,45 @@ export default function AdminDashboard() {
                 </div>
 
                 <div className="grid grid-cols-1 gap-4 sm:gap-6">
+                  <div className="space-y-3">
+                    <label className="text-xs font-bold text-gray-400 uppercase ml-2">Sua Foto de Perfil</label>
+                    <div className="bg-pink-50/50 border-2 border-transparent rounded-[2rem] p-4 sm:p-5 flex items-center gap-6">
+                      <label htmlFor="photo-upload" className="cursor-pointer">
+                        <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-white border border-pink-100 overflow-hidden flex items-center justify-center shrink-0 relative shadow-md">
+                          {profileInfo.photoURL ? (
+                            <img src={profileInfo.photoURL} alt="Perfil" className="w-full h-full object-cover" />
+                          ) : (
+                            <User size={40} className="text-pink-200" />
+                          )}
+                          {photoUploading && (
+                            <div className="absolute inset-0 bg-white/70 flex items-center justify-center">
+                              <div className="w-6 h-6 border-2 border-pink-200 border-t-pink-600 rounded-full animate-spin"></div>
+                            </div>
+                          )}
+                        </div>
+                      </label>
+                      <div className="flex-1 space-y-2">
+                        <p className="text-sm font-bold text-gray-700">Sua foto profissional</p>
+                        <p className="text-xs text-gray-500">Essa foto aparecerá para suas clientes e no seu menu lateral.</p>
+                        <label htmlFor="photo-upload" className="inline-block text-[10px] font-black uppercase tracking-widest bg-slate-950 text-white px-4 py-2 rounded-xl cursor-pointer hover:bg-slate-800 transition-all">
+                          Alterar Foto
+                        </label>
+                      </div>
+
+                      <input
+                        id="photo-upload"
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleUploadPhoto(file);
+                          e.target.value = '';
+                        }}
+                      />
+                    </div>
+                  </div>
+
                   <div className="space-y-2">
                     <label className="text-xs font-bold text-gray-400 uppercase ml-2">Nome da Estética</label>
                     <div className="relative">

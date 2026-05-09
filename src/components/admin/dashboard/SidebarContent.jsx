@@ -29,8 +29,8 @@ const SidebarContent = ({ view, setView, logout, establishment, profileInfo }) =
       <div className="p-6 mb-4">
         <div className="flex items-center gap-4 mb-4">
           <div className="w-12 h-12 bg-pink-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-pink-100 shrink-0 overflow-hidden">
-            {profileInfo?.logo_url ? (
-              <img src={profileInfo.logo_url} alt={profileInfo.nome} className="w-full h-full object-cover" />
+            {profileInfo?.photoURL || profileInfo?.logo_url ? (
+              <img src={profileInfo.photoURL || profileInfo.logo_url} alt={profileInfo.nome} className="w-full h-full object-cover" />
             ) : (
               <Sparkles size={28} />
             )}
