@@ -12,20 +12,29 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 /**
  * Faz upload de um arquivo para o Supabase Storage
  * @param {File} file O arquivo a ser enviado
- * @param {string} bucket O nome do bucket (ex: 'photos')
+ * @param {string} bucket O nome do bucket (ex: 'bellizyuplo')
  * @param {string} path O caminho dentro do bucket
  * @returns {Promise<string>} A URL pública do arquivo
  */
 export const uploadToSupabase = async (file, bucket, path) => {
   try {
+    const targetBucket = bucket.trim();
+    
+    // Tenta o upload
     const { data, error } = await supabase.storage
-      .from(bucket)
+      .from(targetBucket)
       .upload(path, file, {
         cacheControl: '3600',
-        upsert: true
+        upsert: true,
+        contentType: file.type
       });
 
-    if (error) throw error;
+    if (error) {
+      // Se der erro, vamos listar os buckets para ajudar o usuário
+      const { data: buckets } = await supabase.storage.listBuckets();
+      console.error('Buckets encontrados no seu projeto:', buckets?.map(b => b.name));
+      throw error;
+    }
 
     const { data: { publicUrl } } = supabase.storage
       .from(bucket)

@@ -389,7 +389,7 @@ export default function AdminDashboard() {
     try {
       setLogoUploading(true);
       const filePath = `establishments/${establishment.id}/logo-${Date.now()}`;
-      const url = await uploadToSupabase(file, 'photos', filePath);
+      const url = await uploadToSupabase(file, 'bellizyuplo', filePath);
       await updateDoc(doc(db, 'establishments', establishment.id), { logo_url: url });
       setProfileInfo(prev => ({ ...prev, logo_url: url }));
       alert('Logo atualizada via Supabase!');
@@ -406,7 +406,7 @@ export default function AdminDashboard() {
     try {
       setPhotoUploading(true);
       const filePath = `users/${user.uid}/profile-${Date.now()}`;
-      const url = await uploadToSupabase(file, 'photos', filePath);
+      const url = await uploadToSupabase(file, 'bellizyuplo', filePath);
       await updateDoc(doc(db, 'users', user.uid), { photoURL: url });
       setProfileInfo(prev => ({ ...prev, photoURL: url }));
       alert('Foto de perfil atualizada via Supabase!');

@@ -158,7 +158,7 @@ export default function OnboardingWizard({ establishment }) {
     try {
       setLogoUploading(true);
       const filePath = `establishments/${establishment.id}/logo-${Date.now()}`;
-      const url = await uploadToSupabase(file, 'photos', filePath);
+      const url = await uploadToSupabase(file, 'bellizyuplo', filePath);
       setLogoUrl(url);
     } catch (error) {
       console.error('Erro ao enviar foto:', error);
