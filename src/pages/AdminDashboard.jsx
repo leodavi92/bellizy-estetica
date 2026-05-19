@@ -911,7 +911,7 @@ export default function AdminDashboard() {
     return (
       <div className="flex flex-col items-center justify-center py-20 gap-4">
         <div className="w-12 h-12 border-4 border-pink-200 border-t-pink-600 rounded-full animate-spin"></div>
-        <p className="text-pink-600 font-medium">Carregando painel de controle...</p>
+        <p className="text-pink-600 font-medium italic animate-pulse">Bellizy...</p>
       </div>
     );
   }
