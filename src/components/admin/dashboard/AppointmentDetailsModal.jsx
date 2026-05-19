@@ -24,7 +24,9 @@ const AppointmentDetailsModal = ({ isOpen, onClose, appointment, onCancel, onCom
 
   const appDate = appointment.data_hora?.toDate ? appointment.data_hora.toDate() : new Date(appointment.data_hora);
   const userPhone = appointment.user_phone || appointment.telefone || '';
-  const whatsappUrl = `https://wa.me/${userPhone.replace(/\D/g, '')}`;
+  const cleanPhone = userPhone.replace(/\D/g, '');
+  const formattedPhone = cleanPhone.startsWith('55') ? cleanPhone : `55${cleanPhone}`;
+  const whatsappUrl = `https://wa.me/${formattedPhone}`;
   const userAvatar = appointment.user_avatar || appointment.avatar_url || appointment.photoURL || '';
 
   const handleClose = () => {
@@ -163,7 +165,7 @@ const AppointmentDetailsModal = ({ isOpen, onClose, appointment, onCancel, onCom
                       <button
                         onClick={() => {
                           const message = encodeURIComponent(`Olá ${appointment.user_nome}! ✨ Passando para confirmar seu agendamento de ${appointment.services ? appointment.services.map(s => s.nome).join(' + ') : appointment.service_nome} para ${format(appDate, "dd/MM 'às' HH:mm")}. Podemos confirmar?`);
-                          window.open(`https://wa.me/${userPhone.replace(/\D/g, '')}?text=${message}`, '_blank');
+                          window.open(`https://wa.me/${formattedPhone}?text=${message}`, '_blank');
                         }}
                         className="flex items-center justify-center gap-3 w-full bg-white border-2 border-green-500 text-green-600 hover:bg-green-50 py-3.5 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all active:scale-95"
                       >

@@ -129,7 +129,9 @@ export const getInstagramUrl = (instagram = '') => {
 
 export const getWhatsAppUrl = (phone = '') => {
   const cleaned = phone.replace(/\D/g, '');
-  return cleaned ? `https://wa.me/${cleaned}` : '';
+  if (!cleaned) return '';
+  const formatted = cleaned.startsWith('55') ? cleaned : `55${cleaned}`;
+  return `https://wa.me/${formatted}`;
 };
 
 /**

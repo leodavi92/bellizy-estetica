@@ -1,6 +1,7 @@
 import React from 'react';
-import { MapPin, Clock3, Instagram, Phone, Sparkles, ChevronRight, User } from 'lucide-react';
+import { MapPin, Clock3, Instagram, Phone, Sparkles, ChevronRight, User, Star, ShieldCheck, MessageCircle, TrendingUp } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { getWhatsAppUrl, getInstagramUrl } from '../../../../services/establishmentService';
 
 export default function PremiumBalanceLayout({
   establishment,
@@ -75,7 +76,7 @@ export default function PremiumBalanceLayout({
 
           <div className="grid grid-cols-2 gap-3">
             <a 
-              href={`https://wa.me/${establishment.telefone?.replace(/\D/g, '')}`}
+              href={getWhatsAppUrl(establishment.telefone)}
               target="_blank"
               rel="noreferrer"
               className="flex items-center justify-center gap-3 py-4 rounded-2xl bg-white border border-slate-100 text-slate-700 font-bold text-xs hover:bg-slate-50 transition-all shadow-sm"
@@ -84,7 +85,7 @@ export default function PremiumBalanceLayout({
               Contato
             </a>
             <a 
-              href={`https://instagram.com/${establishment.instagram?.replace('@', '')}`}
+              href={getInstagramUrl(establishment.instagram)}
               target="_blank"
               rel="noreferrer"
               className="flex items-center justify-center gap-3 py-4 rounded-2xl bg-white border border-slate-100 text-slate-700 font-bold text-xs hover:bg-slate-50 transition-all shadow-sm"

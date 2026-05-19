@@ -1,6 +1,7 @@
 import React from 'react';
 import { MapPin, Clock3, Instagram, Phone, ArrowUpRight, Zap, Sparkles } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { getWhatsAppUrl, getInstagramUrl } from '../../../../services/establishmentService';
 
 export default function ModernLayout({
   establishment,
@@ -96,7 +97,7 @@ export default function ModernLayout({
             <div className="grid grid-cols-2 gap-3">
               <motion.a 
                 whileHover={{ y: -2 }}
-                href={`https://wa.me/${establishment.telefone?.replace(/\D/g, '')}`}
+                href={getWhatsAppUrl(establishment.telefone)}
                 target="_blank"
                 rel="noreferrer"
                 className="flex flex-col items-center justify-center gap-2 py-4 rounded-2xl bg-slate-50 border border-slate-100 text-slate-800 transition-all hover:bg-white hover:shadow-lg"
@@ -108,7 +109,7 @@ export default function ModernLayout({
               </motion.a>
               <motion.a 
                 whileHover={{ y: -2 }}
-                href={`https://instagram.com/${establishment.instagram?.replace('@', '')}`}
+                href={getInstagramUrl(establishment.instagram)}
                 target="_blank"
                 rel="noreferrer"
                 className="flex flex-col items-center justify-center gap-2 py-4 rounded-2xl bg-slate-50 border border-slate-100 text-slate-800 transition-all hover:bg-white hover:shadow-lg"

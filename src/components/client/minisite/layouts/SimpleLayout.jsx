@@ -8,6 +8,7 @@ import {
   User
 } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { getWhatsAppUrl, getInstagramUrl } from '../../../../services/establishmentService';
 
 export default function SimpleLayout({
   establishment,
@@ -79,7 +80,7 @@ export default function SimpleLayout({
             {/* Ações Rápidas em Quadradinhos */}
             <div className="grid grid-cols-3 gap-2">
               <a 
-                href={`https://wa.me/${establishment.telefone?.replace(/\D/g, '')}`}
+                href={getWhatsAppUrl(establishment.telefone)}
                 target="_blank"
                 rel="noreferrer"
                 className="aspect-square bg-white border border-slate-100 rounded-2xl flex flex-col items-center justify-center gap-1 hover:bg-slate-50 transition-all shadow-sm"
@@ -88,7 +89,7 @@ export default function SimpleLayout({
                 <span className="text-[8px] font-black uppercase text-slate-400">Zap</span>
               </a>
               <a 
-                href={`https://instagram.com/${establishment.instagram?.replace('@', '')}`}
+                href={getInstagramUrl(establishment.instagram)}
                 target="_blank"
                 rel="noreferrer"
                 className="aspect-square bg-white border border-slate-100 rounded-2xl flex flex-col items-center justify-center gap-1 hover:bg-slate-50 transition-all shadow-sm"

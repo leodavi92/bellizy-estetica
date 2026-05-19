@@ -4,6 +4,7 @@ import { collection, getDocs, query, where } from 'firebase/firestore';
 import { addMinutes, format, isAfter, isSameDay, startOfDay } from 'date-fns';
 import { enUS } from 'date-fns/locale';
 import { CheckCircle2, Sparkles } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../services/firebase';
 import { createAppointment, getAvailableSlots, getServices } from '../services/appointmentService';
@@ -24,6 +25,7 @@ export default function BookingSchedulePage() {
   const [loading, setLoading] = useState(true);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [bookingSuccess, setBookingSuccess] = useState(false);
+  const [showLoginModal, setShowLoginModal] = useState(false);
 
   // Parse múltiplo de serviços
   const selectedServices = useMemo(() => {
@@ -137,8 +139,7 @@ export default function BookingSchedulePage() {
 
   async function handleBook(slot) {
     if (!user) {
-      alert('Para agendar, voce precisa entrar na sua conta. Vamos te levar para a tela de acesso.');
-      navigate('/login');
+      setShowLoginModal(true);
       return;
     }
 
@@ -196,6 +197,54 @@ export default function BookingSchedulePage() {
         setCurrentMonth={setCurrentMonth}
         checkDayAvailability={checkDayAvailability}
       />
+
+      <AnimatePresence>
+        {showLoginModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowLoginModal(false)}
+              className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl p-8 text-center overflow-hidden"
+            >
+              <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-pink-600 to-rose-500" />
+              
+              <div className="w-20 h-20 bg-pink-50 text-pink-600 rounded-[2rem] flex items-center justify-center mx-auto mb-6 shadow-xl shadow-pink-50">
+                <Sparkles size={40} className="animate-pulse" />
+              </div>
+
+              <h3 className="text-2xl font-black text-slate-900 tracking-tight uppercase mb-3">
+                Quase lá! ✨
+              </h3>
+              <p className="text-slate-500 font-medium leading-relaxed mb-8">
+                Para garantir seu horário e receber as confirmações, você precisa entrar na sua conta ou criar uma rapidinho.
+              </p>
+
+              <div className="space-y-3">
+                <button
+                  onClick={() => navigate('/login')}
+                  className="w-full py-4 bg-slate-950 text-white rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-slate-200 hover:bg-slate-800 transition-all active:scale-95"
+                >
+                  Entrar ou Cadastrar
+                </button>
+                <button
+                  onClick={() => setShowLoginModal(false)}
+                  className="w-full py-4 bg-white text-slate-400 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:text-slate-600 transition-all"
+                >
+                  Depois eu faço isso
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {bookingSuccess && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-6 backdrop-blur-sm">

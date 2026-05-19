@@ -1,6 +1,7 @@
 import React from 'react';
 import { MapPin, Clock3, Instagram, Phone, Sparkles, ChevronRight, Share2 } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { getWhatsAppUrl, getInstagramUrl } from '../../../../services/establishmentService';
 
 export default function LuxuryLayout({
   establishment,
@@ -134,7 +135,7 @@ export default function LuxuryLayout({
 
           <motion.div variants={itemVariants} className="grid grid-cols-2 gap-4">
             <a 
-              href={`https://wa.me/${establishment.telefone?.replace(/\D/g, '')}`}
+              href={getWhatsAppUrl(establishment.telefone)}
               target="_blank"
               rel="noreferrer"
               className="flex items-center justify-center gap-3 py-4 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-md hover:bg-white/10 transition-all group"
@@ -143,7 +144,7 @@ export default function LuxuryLayout({
               <span className="text-[10px] font-bold uppercase tracking-widest text-white/70">Concierge</span>
             </a>
             <a 
-              href={`https://instagram.com/${establishment.instagram?.replace('@', '')}`}
+              href={getInstagramUrl(establishment.instagram)}
               target="_blank"
               rel="noreferrer"
               className="flex items-center justify-center gap-3 py-4 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-md hover:bg-white/10 transition-all group"

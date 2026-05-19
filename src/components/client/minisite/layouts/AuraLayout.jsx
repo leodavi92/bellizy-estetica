@@ -1,5 +1,5 @@
 import React from 'react';
-import { 
+import {
   MapPin, 
   Clock3, 
   Instagram, 
@@ -7,11 +7,12 @@ import {
   Sparkles, 
   ShieldCheck, 
   Leaf, 
-  Star,
+  Star, 
   ChevronRight,
   MessageCircle
 } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { getWhatsAppUrl, getInstagramUrl } from '../../../../services/establishmentService';
 
 export default function AuraLayout({
   establishment,
@@ -218,7 +219,7 @@ export default function AuraLayout({
           {/* Social Links */}
           <div className="flex gap-3 pt-4">
             <a 
-              href={`https://wa.me/${establishment.telefone?.replace(/\D/g, '')}`}
+              href={getWhatsAppUrl(establishment.telefone)}
               target="_blank"
               rel="noreferrer"
               className="flex-1 flex items-center justify-center gap-3 py-4 rounded-2xl bg-[#C5A059] text-white font-black text-[10px] uppercase tracking-[0.2em]"
@@ -227,7 +228,7 @@ export default function AuraLayout({
               WhatsApp
             </a>
             <a 
-              href={`https://instagram.com/${establishment.instagram?.replace('@', '')}`}
+              href={getInstagramUrl(establishment.instagram)}
               target="_blank"
               rel="noreferrer"
               className="w-16 flex items-center justify-center rounded-2xl bg-white/5 border border-white/10"
@@ -246,7 +247,7 @@ export default function AuraLayout({
         initial={{ scale: 0 }}
         animate={{ scale: 1 }}
         whileHover={{ scale: 1.1 }}
-        href={`https://wa.me/${establishment.telefone?.replace(/\D/g, '')}`}
+        href={getWhatsAppUrl(establishment.telefone)}
         target="_blank"
         rel="noreferrer"
         className="fixed bottom-8 right-8 w-14 h-14 bg-[#25D366] text-white rounded-full shadow-2xl flex items-center justify-center z-50 lg:hidden"

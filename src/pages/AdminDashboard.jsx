@@ -532,7 +532,28 @@ export default function AdminDashboard() {
   async function handleCancelAppointment(id) {
     try {
       setLoading(true);
-      await updateDoc(doc(db, "appointments", id), { status: 'cancelled' });
+      const appRef = doc(db, "appointments", id);
+      const appSnap = await getDoc(appRef);
+      const appData = appSnap.exists() ? appSnap.data() : null;
+
+      await updateDoc(appRef, { status: 'cancelled' });
+
+      // Notificação para o cliente
+      if (appData?.user_id) {
+        await addDoc(collection(db, "notifications"), {
+          establishment_id: establishment.id,
+          user_id: appData.user_id,
+          type: 'appointment_cancelled',
+          title: 'Agendamento Cancelado',
+          message: `Seu agendamento para ${appData.service_nome || 'Serviço'} foi cancelado pela estética.`,
+          read: false,
+          createdAt: Timestamp.now()
+        });
+        
+        // NOVO: Força um pequeno delay para garantir que o Firestore processe antes do toast
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+
       setIsAppDetailsModalOpen(false);
       showToast("Agendamento cancelado.");
     } catch (error) {
@@ -546,7 +567,25 @@ export default function AdminDashboard() {
   async function handleCompleteAppointment(id) {
     try {
       setLoading(true);
-      await updateDoc(doc(db, "appointments", id), { status: 'completed' });
+      const appRef = doc(db, "appointments", id);
+      const appSnap = await getDoc(appRef);
+      const appData = appSnap.exists() ? appSnap.data() : null;
+
+      await updateDoc(appRef, { status: 'completed' });
+
+      // Notificação para o cliente
+      if (appData?.user_id) {
+        await addDoc(collection(db, "notifications"), {
+          establishment_id: establishment.id,
+          user_id: appData.user_id,
+          type: 'appointment_completed',
+          title: 'Atendimento Finalizado! ✨',
+          message: `Sua sessão de ${appData.service_nome || 'Serviço'} foi concluída. Esperamos que tenha amado!`,
+          read: false,
+          createdAt: Timestamp.now()
+        });
+      }
+
       setIsAppDetailsModalOpen(false);
       showToast("Agendamento finalizado!");
     } catch (error) {
@@ -1924,7 +1963,7 @@ export default function AdminDashboard() {
                                         </div>
                                           {client.telefone && (
                                             <a 
-                                              href={`https://wa.me/${client.telefone.replace(/\D/g, '')}`}
+                                              href={`https://wa.me/${client.telefone.replace(/\D/g, '').startsWith('55') ? client.telefone.replace(/\D/g, '') : `55${client.telefone.replace(/\D/g, '')}`}`}
                                               target="_blank"
                                               rel="noopener noreferrer"
                                               className="ml-auto w-8 h-8 bg-emerald-500 text-white rounded-lg flex items-center justify-center hover:bg-emerald-600 transition-all shadow-sm shadow-emerald-100"
@@ -2122,7 +2161,7 @@ export default function AdminDashboard() {
                                   app.status === 'completed' ? 'bg-blue-100 text-blue-700' :
                                   'bg-red-100 text-red-700'
                                 }`}>
-                                  {app.status}
+                                  {app.status === 'scheduled' ? 'Agendado' : app.status === 'ativo' ? 'Ativo' : app.status === 'completed' ? 'Finalizado' : app.status === 'cancelled' ? 'Cancelado' : app.status}
                                 </span>
                               </div>
                               <p className="text-sm text-gray-500 flex items-center gap-1 font-medium">

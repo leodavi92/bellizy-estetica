@@ -1,6 +1,7 @@
 import React from 'react';
 import { Sparkles, MapPin, Clock3, Star, Instagram, Phone } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { getWhatsAppUrl, getInstagramUrl } from '../../../../services/establishmentService';
 
 export default function EleganceLayout({
   establishment,
@@ -72,7 +73,7 @@ export default function EleganceLayout({
               
               <div className="grid grid-cols-2 gap-3 pt-6">
                 <a 
-                  href={`https://wa.me/${establishment.telefone?.replace(/\D/g, '')}`}
+                  href={getWhatsAppUrl(establishment.telefone)}
                   target="_blank"
                   rel="noreferrer"
                   className="flex items-center justify-center gap-2 py-4 rounded-[2rem] bg-white border border-slate-100 shadow-sm font-black text-[9px] uppercase tracking-widest text-slate-600 transition-all active:scale-95 hover:bg-slate-50"
@@ -81,7 +82,7 @@ export default function EleganceLayout({
                   WhatsApp
                 </a>
                 <a 
-                  href={`https://instagram.com/${establishment.instagram?.replace('@', '')}`}
+                  href={getInstagramUrl(establishment.instagram)}
                   target="_blank"
                   rel="noreferrer"
                   className="flex items-center justify-center gap-2 py-4 rounded-[2rem] bg-white border border-slate-100 shadow-sm font-black text-[9px] uppercase tracking-widest text-slate-600 transition-all active:scale-95 hover:bg-slate-50"

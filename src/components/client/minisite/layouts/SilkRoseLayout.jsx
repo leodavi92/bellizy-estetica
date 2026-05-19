@@ -1,5 +1,5 @@
 import React from 'react';
-import { 
+import {
   Heart, 
   Star, 
   MessageCircle, 
@@ -11,6 +11,7 @@ import {
   Flower2,
   Share2
 } from 'lucide-react';
+import { getWhatsAppUrl, getInstagramUrl } from '../../../../services/establishmentService';
 import { motion } from 'framer-motion';
 
 export default function SilkRoseLayout({
@@ -202,7 +203,7 @@ export default function SilkRoseLayout({
 
             <div className="flex flex-col gap-3">
               <a 
-                href={`https://wa.me/${establishment.telefone?.replace(/\D/g, '')}`}
+                href={getWhatsAppUrl(establishment.telefone)}
                 target="_blank"
                 rel="noreferrer"
                 className="w-full py-5 rounded-full bg-rose-500 text-white font-black text-xs uppercase tracking-widest shadow-lg active:scale-95 transition-all flex items-center justify-center gap-3"
@@ -212,7 +213,7 @@ export default function SilkRoseLayout({
               </a>
               <div className="flex gap-3">
                 <a 
-                  href={`https://instagram.com/${establishment.instagram?.replace('@', '')}`}
+                  href={getInstagramUrl(establishment.instagram)}
                   target="_blank"
                   rel="noreferrer"
                   className="flex-1 flex items-center justify-center py-4 rounded-full bg-white border border-rose-100 text-rose-400"
@@ -239,7 +240,7 @@ export default function SilkRoseLayout({
         initial={{ scale: 0 }}
         animate={{ scale: 1 }}
         whileHover={{ scale: 1.1 }}
-        href={`https://wa.me/${establishment.telefone?.replace(/\D/g, '')}`}
+        href={getWhatsAppUrl(establishment.telefone)}
         target="_blank"
         rel="noreferrer"
         className="fixed bottom-8 right-8 w-16 h-16 bg-rose-500 text-white rounded-full shadow-2xl flex items-center justify-center z-50 lg:hidden border-4 border-white"
