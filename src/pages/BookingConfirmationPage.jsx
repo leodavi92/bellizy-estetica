@@ -87,8 +87,9 @@ export default function BookingConfirmationPage() {
         establishment_name: establishment.nome,
         user_id: user.uid,
         user_nome: user.nome,
+        user_email: user.email || '',
         user_avatar: user.photoURL || user.avatar_url || '',
-        user_phone: user.telefone || user.phone || '',
+        user_telefone: user.telefone || user.phone || '',
         services: selectedServices.map(s => ({
           id: s.id,
           nome: s.nome,

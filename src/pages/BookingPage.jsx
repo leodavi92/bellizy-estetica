@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { ArrowLeft, Sparkles, LayoutGrid, Info } from 'lucide-react';
 import { getServices } from '../services/appointmentService';
 import { getEstablishmentBySlug } from '../services/establishmentService';
@@ -10,6 +10,7 @@ import CheckoutFooter from '../components/booking/CheckoutFooter';
 export default function BookingPage() {
   const { slug } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [establishment, setEstablishment] = useState(null);
   const [services, setServices] = useState([]);
@@ -33,6 +34,16 @@ export default function BookingPage() {
 
         const servicesData = await getServices(estData.id);
         setServices(servicesData);
+
+        // Pré-seleção de serviço via Query Param
+        const params = new URLSearchParams(location.search);
+        const preSelectedId = params.get('serviceId');
+        if (preSelectedId && servicesData.length > 0) {
+          const service = servicesData.find(s => s.id === preSelectedId);
+          if (service) {
+            setSelectedServices([service]);
+          }
+        }
       } catch (error) {
         console.error('Erro ao carregar pagina de agendamento:', error);
       } finally {
@@ -41,7 +52,7 @@ export default function BookingPage() {
     }
 
     loadInitialData();
-  }, [slug]);
+  }, [slug, location.search]);
 
   const toggleService = (service) => {
     setSelectedServices(prev => {

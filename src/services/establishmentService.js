@@ -68,6 +68,8 @@ export const normalizeEstablishmentData = (data = {}) => {
     instagram: data.instagram || '',
     descricao,
     logo_url: data.logo_url || '',
+    photoURL: data.photoURL || '',
+    professionalName: data.professionalName || '',
     banner_url: data.banner_url || '',
     endereco,
     address: endereco,
@@ -77,6 +79,11 @@ export const normalizeEstablishmentData = (data = {}) => {
       'Cancelamentos e remarcacoes devem ser solicitados com pelo menos 24 horas de antecedencia.',
     settings,
     profile_completed: data.profile_completed ?? false,
+    subscription: data.subscription || {
+      status: 'trial',
+      trial_ends_at: Timestamp.fromDate(new Date(Date.now() + 15 * 24 * 60 * 60 * 1000)),
+      plan: 'silver'
+    },
     setup_steps: data.setup_steps || {
       info_basica: false,
       logo: false,
@@ -100,12 +107,15 @@ export const buildEstablishmentPayload = (adminUid, data = {}) => {
     instagram: normalized.instagram,
     descricao: normalized.descricao,
     logo_url: normalized.logo_url,
+    photoURL: normalized.photoURL,
+    professionalName: normalized.professionalName,
     banner_url: normalized.banner_url,
     endereco: normalized.endereco,
     address: normalized.endereco,
     horario_funcionamento: normalized.horario_funcionamento,
     politica_cancelamento: normalized.politica_cancelamento,
     profile_completed: normalized.profile_completed,
+    subscription: normalized.subscription,
     setup_steps: normalized.setup_steps,
     createdAt: data.createdAt || Timestamp.now(),
     settings: normalized.settings

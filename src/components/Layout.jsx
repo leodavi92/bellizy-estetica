@@ -1,11 +1,19 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeftRight, LogOut, User, Calendar, Home, Phone, MessageCircleMore } from 'lucide-react';
+import { ArrowLeftRight, LogOut, User, Calendar, Home, Phone, MessageCircleMore, Bell } from 'lucide-react';
 import InstallPWA from './InstallPWA';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../services/firebase';
-import { getWhatsAppUrl } from '../services/establishmentService';
+import { getEstablishmentBySlug, getWhatsAppUrl } from '../services/establishmentService';
+import { getMyAppointments } from '../services/appointmentService';
+import { format } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
+
+const createPseudoTimestamp = (ms) => ({
+  toMillis: () => ms,
+  toDate: () => new Date(ms)
+});
 
 export default function Layout({ children }) {
   const { user, setUser, establishment, logout } = useAuth();
@@ -16,6 +24,11 @@ export default function Layout({ children }) {
   const [clientTelefone, setClientTelefone] = useState('');
   const [clientSaving, setClientSaving] = useState(false);
   const [clientError, setClientError] = useState('');
+  const [clientNotificationsOpen, setClientNotificationsOpen] = useState(false);
+  const [clientAppointments, setClientAppointments] = useState([]);
+  const [clientAppointmentsLoading, setClientAppointmentsLoading] = useState(false);
+  const [seenClientReminderIds, setSeenClientReminderIds] = useState([]);
+  const [nowTick, setNowTick] = useState(Date.now());
 
   const pathSegments = location.pathname.split('/').filter(Boolean);
   const currentSlug =
@@ -103,6 +116,111 @@ export default function Layout({ children }) {
     location.pathname !== '/login' &&
     !location.pathname.startsWith('/admin');
 
+  const cleanSlug = String(currentSlug || '').replace('estetica/', '');
+
+  useEffect(() => {
+    if (!isClientView || !user?.uid || !cleanSlug) return;
+    try {
+      const raw = localStorage.getItem(`seen_client_reminders_${user.uid}_${cleanSlug}`);
+      const parsed = raw ? JSON.parse(raw) : [];
+      setSeenClientReminderIds(Array.isArray(parsed) ? parsed : []);
+    } catch {
+      setSeenClientReminderIds([]);
+    }
+  }, [isClientView, user?.uid, cleanSlug]);
+
+  useEffect(() => {
+    if (!isClientView || !user?.uid || !cleanSlug) return;
+
+    let active = true;
+    (async () => {
+      try {
+        setClientAppointmentsLoading(true);
+        const est = await getEstablishmentBySlug(cleanSlug);
+        if (!active) return;
+        if (!est?.id) {
+          setClientAppointments([]);
+          return;
+        }
+        const apps = await getMyAppointments(user.uid, est.id);
+        if (!active) return;
+        setClientAppointments(Array.isArray(apps) ? apps : []);
+      } finally {
+        if (active) setClientAppointmentsLoading(false);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [isClientView, user?.uid, cleanSlug]);
+
+  useEffect(() => {
+    if (!isClientView || !user?.uid) return;
+    const id = setInterval(() => setNowTick(Date.now()), 60 * 1000);
+    return () => clearInterval(id);
+  }, [isClientView, user?.uid]);
+
+  const clientReminderNotifications = (() => {
+    if (!isClientView || !user?.uid) return [];
+    const nowMs = nowTick || Date.now();
+    const seen = new Set(seenClientReminderIds);
+
+    const reminders = clientAppointments
+      .map((app) => {
+        const status = app.status;
+        if (status === 'cancelled' || status === 'cancelado' || status === 'completed') return null;
+
+        const start = app.start_time?.toDate ? app.start_time.toDate() : app.data_hora?.toDate ? app.data_hora.toDate() : new Date(app.data_hora);
+        const startMs = start.getTime();
+        if (!Number.isFinite(startMs)) return null;
+        const diffMs = startMs - nowMs;
+        if (diffMs <= 0) return null;
+        if (diffMs > 2 * 60 * 60 * 1000) return null;
+
+        const id = `auto-2h-${app.id}`;
+        if (seen.has(id)) return null;
+
+        const servicesLabel =
+          app.services && Array.isArray(app.services) && app.services.length > 0
+            ? app.services.map((s) => s.nome || s.name).filter(Boolean).join(' + ')
+            : app.service_nome || 'Serviço';
+
+        return {
+          id,
+          title: 'Lembrete: seu horário está chegando',
+          message: `${servicesLabel} • ${format(start, "dd/MM 'às' HH:mm")}`,
+          read: false,
+          createdAt: createPseudoTimestamp(startMs - 2 * 60 * 60 * 1000)
+        };
+      })
+      .filter(Boolean);
+
+    reminders.sort((a, b) => {
+      const dateA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+      const dateB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+      return dateB - dateA;
+    });
+
+    return reminders.slice(0, 5);
+  })();
+
+  const hasClientReminders = clientReminderNotifications.length > 0;
+
+  const markClientRemindersSeen = () => {
+    if (!user?.uid || !cleanSlug) return;
+    if (clientReminderNotifications.length === 0) return;
+    const ids = clientReminderNotifications.map((n) => n.id);
+    setSeenClientReminderIds((prev) => {
+      const next = Array.from(new Set([...(prev || []), ...ids]));
+      try {
+        localStorage.setItem(`seen_client_reminders_${user.uid}_${cleanSlug}`, JSON.stringify(next));
+      } catch {
+      }
+      return next;
+    });
+  };
+
   return (
     <div className="min-h-screen bg-pink-50 flex flex-col font-sans">
       <header className="bg-white/80 backdrop-blur-md border-b-2 border-pink-200 px-4 py-3 sticky top-0 z-30 shadow-sm">
@@ -152,6 +270,30 @@ export default function Layout({ children }) {
             )}
 
             <div className="flex items-center gap-2">
+              {isClientView && user && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !clientNotificationsOpen;
+                    setClientNotificationsOpen(next);
+                    if (next) markClientRemindersSeen();
+                  }}
+                  className={`w-10 h-10 flex items-center justify-center rounded-xl transition-all border border-gray-100 relative ${
+                    clientNotificationsOpen
+                      ? 'bg-pink-50 text-pink-600'
+                      : hasClientReminders
+                        ? 'bg-white text-pink-600 hover:bg-pink-50'
+                        : 'bg-gray-50 text-gray-400 hover:text-pink-600 hover:bg-pink-50'
+                  }`}
+                  title="Lembretes"
+                >
+                  <Bell size={18} />
+                  {hasClientReminders && (
+                    <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-white animate-pulse" />
+                  )}
+                </button>
+              )}
+
               {canSwitchEstablishment && (
                 <button
                   type="button"
@@ -183,6 +325,54 @@ export default function Layout({ children }) {
           </div>
         </div>
       </header>
+
+      {isClientView && user && clientNotificationsOpen && (
+        <div className="fixed inset-0 z-[70]">
+          <div
+            className="absolute inset-0 bg-slate-950/35 backdrop-blur-sm"
+            onClick={() => setClientNotificationsOpen(false)}
+          />
+          <div className="absolute right-4 top-20 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-[2rem] border-2 border-slate-950 bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/60 px-5 py-4">
+              <div className="min-w-0">
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-pink-600">Lembretes</p>
+                <p className="mt-1 text-sm font-black text-slate-900 truncate">Seu app Bellizy</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setClientNotificationsOpen(false)}
+                className="h-10 w-10 rounded-2xl border border-slate-100 bg-white text-slate-500 hover:bg-slate-50"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="max-h-[60vh] overflow-y-auto px-5 py-4">
+              {clientAppointmentsLoading ? (
+                <p className="py-10 text-center text-sm font-bold text-slate-400">Carregando lembretes...</p>
+              ) : clientReminderNotifications.length === 0 ? (
+                <div className="py-10 text-center">
+                  <p className="text-sm font-bold text-slate-500">Nenhum lembrete agora.</p>
+                  <p className="mt-2 text-xs font-medium text-slate-400">
+                    Os avisos aparecem até 2 horas antes do seu horário.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {clientReminderNotifications.map((notif) => (
+                    <div key={notif.id} className="rounded-2xl border border-pink-100 bg-pink-50/20 p-4">
+                      <p className="text-xs font-black text-slate-900">{notif.title}</p>
+                      <p className="mt-1 text-sm font-medium text-slate-600">{notif.message}</p>
+                      <p className="mt-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                        {notif.createdAt?.toDate ? format(notif.createdAt.toDate(), "HH:mm '·' dd/MM", { locale: ptBR }) : 'Agora'}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <main className="flex-1 max-w-4xl mx-auto w-full p-4 pb-28 md:pb-10">
         {children}

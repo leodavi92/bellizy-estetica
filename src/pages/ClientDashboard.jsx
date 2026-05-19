@@ -6,12 +6,13 @@ import {
   ShieldCheck,
   Sparkles
 } from 'lucide-react';
-import { doc, runTransaction } from 'firebase/firestore';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import {
   getEstablishmentBySlug
 } from '../services/establishmentService';
-import EstablishmentHero from '../components/client/EstablishmentHero';
+import { getServices } from '../services/appointmentService';
+import MiniSiteRenderer from '../components/client/minisite/MiniSiteRenderer';
 
 const trustItems = [
   {
@@ -37,6 +38,7 @@ export default function ClientDashboard() {
   const { user } = useAuth();
 
   const [establishment, setEstablishment] = useState(null);
+  const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -57,36 +59,43 @@ export default function ClientDashboard() {
 
         setEstablishment(estData);
 
+        // Busca serviços reais
+        const servicesData = await getServices(estData.id);
+        setServices(servicesData);
+
         if (user?.uid && user?.tipo !== 'admin') {
           try {
-            await runTransaction(db, async (tx) => {
-              const userRef = doc(db, 'users', user.uid);
-              const snap = await tx.get(userRef);
-              if (!snap.exists()) return;
+            const userRef = doc(db, 'users', user.uid);
+            const snap = await getDoc(userRef);
+            if (!snap.exists()) return;
 
-              const data = snap.data() || {};
-              const saved = data.saved_establishments || {};
-              const isFirst = !saved || Object.keys(saved).length === 0;
+            const data = snap.data() || {};
+            const saved = data.saved_establishments || {};
+            const isFirst = !saved || Object.keys(saved).length === 0;
 
-              const establishmentInfo = {
-                slug: cleanSlug,
-                nome: estData.nome || '',
-                logo_url: estData.logo_url || '',
-                lastVisitedAt: Date.now()
-              };
+            const establishmentInfo = {
+              slug: cleanSlug,
+              nome: estData.nome || '',
+              logo_url: estData.logo_url || '',
+              lastVisitedAt: Date.now()
+            };
 
-              if (isFirst) {
-                establishmentInfo.favorite = true;
-              }
+            if (isFirst) {
+              establishmentInfo.favorite = true;
+            }
 
-              const updates = {
+            await setDoc(
+              userRef,
+              {
                 last_establishment_slug: cleanSlug,
-                [`saved_establishments.${estData.id}`]: establishmentInfo
-              };
-
-              tx.update(userRef, updates);
-            });
+                saved_establishments: {
+                  [estData.id]: establishmentInfo
+                }
+              },
+              { merge: true }
+            );
           } catch (e) {
+            console.error('Erro ao salvar estética recente (Firestore):', e);
           }
         }
       } catch (error) {
@@ -99,8 +108,12 @@ export default function ClientDashboard() {
     loadInitialData();
   }, [slug]);
 
-  const handlePrimaryBooking = () => {
-    navigate(`/${slug}/agendar`);
+  const handlePrimaryBooking = (serviceId = null) => {
+    if (serviceId) {
+      navigate(`/${slug}/agendar?serviceId=${serviceId}`);
+    } else {
+      navigate(`/${slug}/agendar`);
+    }
   };
 
   if (loading) {
@@ -132,12 +145,27 @@ export default function ClientDashboard() {
     );
   }
 
+  // Se for um dos novos layouts premium, renderiza o sistema de mini site
+  if (establishment.minisite_settings?.layoutId && establishment.minisite_settings?.layoutId !== 'legacy') {
+    return (
+      <div className="fixed inset-0 overflow-hidden bg-white">
+        <MiniSiteRenderer
+          establishment={establishment}
+          onBookClick={handlePrimaryBooking}
+          settings={establishment.minisite_settings}
+          services={services}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-4xl space-y-8 px-4 pb-14">
-      <EstablishmentHero
+      <MiniSiteRenderer
         establishment={establishment}
         onBookClick={handlePrimaryBooking}
-        heroSubtitle="Pagina profissional da estetica"
+        settings={establishment.minisite_settings || { layoutId: 'legacy' }}
+        services={services}
       />
 
       <section>

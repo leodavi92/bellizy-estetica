@@ -1,9 +1,21 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Menu, X } from 'lucide-react';
+import { Menu, X, Bell } from 'lucide-react';
 import SidebarContent from './SidebarContent';
+import { 
+  Home, 
+  Calendar, 
+  Store, 
+  DollarSign, 
+  Settings, 
+  TrendingUp,
+  Users,
+  Plus,
+  Clock,
+  CreditCard
+} from 'lucide-react';
 
-export const MobileTopbar = ({ onMenuClick, title }) => (
+export const MobileTopbar = ({ onMenuClick, title, onNotificationsClick, hasUnreadNotifications }) => (
   <header className="md:hidden flex items-center justify-between px-6 py-4 bg-white border-b-2 border-pink-200 sticky top-0 z-40 shadow-sm">
     <div className="flex items-center gap-4">
       <button 
@@ -16,8 +28,30 @@ export const MobileTopbar = ({ onMenuClick, title }) => (
         {title}
       </h2>
     </div>
+
+    <button 
+      onClick={onNotificationsClick}
+      className={`p-2 rounded-xl transition-all relative ${hasUnreadNotifications ? 'text-pink-600' : 'text-gray-400'}`}
+    >
+      <Bell size={24} fill={hasUnreadNotifications ? "currentColor" : "none"} />
+      {hasUnreadNotifications && (
+        <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-white animate-pulse" />
+      )}
+    </button>
   </header>
 );
+
+const menuItems = [
+  { id: 'overview', label: 'Dashboard', icon: TrendingUp },
+  { id: 'agenda', label: 'Agenda', icon: Calendar },
+  { id: 'clientes', label: 'Clientes', icon: Users },
+  { id: 'servicos', label: 'Serviços', icon: Plus },
+  { id: 'horarios', label: 'Horários', icon: Clock },
+  { id: 'minisite', label: 'Site', icon: Store },
+  { id: 'financas', label: 'Finanças', icon: DollarSign },
+  { id: 'assinatura', label: 'Assinatura', icon: CreditCard },
+  { id: 'config', label: 'Configurações', icon: Settings }
+];
 
 export const MobileDrawer = ({ isOpen, onClose, ...sidebarProps }) => (
   <AnimatePresence>
@@ -53,7 +87,7 @@ export const MobileDrawer = ({ isOpen, onClose, ...sidebarProps }) => (
               onClose();
             }
           }}>
-            <SidebarContent {...sidebarProps} />
+            <SidebarContent menuItems={menuItems} {...sidebarProps} />
           </div>
         </motion.div>
       </>

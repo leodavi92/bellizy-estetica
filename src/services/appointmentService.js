@@ -6,7 +6,6 @@ import {
   getDocs, 
   addDoc, 
   Timestamp, 
-  orderBy, 
   doc, 
   updateDoc,
   getDoc
@@ -20,6 +19,7 @@ import {
   parseISO, 
   isSameMinute 
 } from 'date-fns';
+import { createInternalNotification } from './notificationService';
 import { enUS } from 'date-fns/locale';
 
 /**
@@ -192,6 +192,18 @@ export const createAppointment = async (appointmentData) => {
       status: 'scheduled',
       createdAt: Timestamp.now()
     });
+
+    // Gatilhos de Notificação
+    const appointmentWithId = { 
+      ...appointmentData, 
+      id: docRef.id, 
+      start_time: Timestamp.fromDate(start), 
+      end_time: Timestamp.fromDate(end) 
+    };
+    
+    // 1. Notificação Interna (Sininho)
+    await createInternalNotification(appointmentData.establishment_id, appointmentWithId);
+
     return docRef.id;
   } catch (error) {
     console.error("Erro ao criar agendamento:", error);

@@ -28,6 +28,8 @@ export function AuthProvider({ children }) {
         if (snap.exists()) {
           setEstablishment(normalizeEstablishmentData({ id: snap.id, ...snap.data() }));
         }
+      }, (error) => {
+        console.error("Erro na escuta do estabelecimento:", error);
       });
     } else {
       setEstablishment(null);
@@ -56,6 +58,11 @@ export function AuthProvider({ children }) {
               nome: '',
               slug: uniqueSlug,
               logo_url: result.user.photoURL || '',
+              subscription: {
+                status: 'trial',
+                trial_ends_at: Timestamp.fromDate(new Date(Date.now() + 15 * 24 * 60 * 60 * 1000)), // 15 dias de teste
+                plan: 'silver' // Plano Profissional (Médio) como teste inicial
+              },
               setup_steps: {
                 info_basica: false,
                 logo: !!result.user.photoURL,
@@ -150,6 +157,11 @@ export function AuthProvider({ children }) {
             slug: uniqueSlug,
             telefone: extraData.telefone || '',
             endereco: extraData.endereco || '',
+            subscription: {
+              status: 'trial',
+              trial_ends_at: Timestamp.fromDate(new Date(Date.now() + 15 * 24 * 60 * 60 * 1000)), // 15 dias de teste
+              plan: 'silver' // Plano Profissional (Médio) como teste inicial
+            },
             setup_steps: {
               info_basica: !!(businessName && extraData.telefone),
               logo: false,
