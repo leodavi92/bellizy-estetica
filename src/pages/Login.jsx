@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { Chrome, Mail, Lock, User, ArrowLeft, Sparkles, Store, MapPin, Phone } from 'lucide-react';
+import { maskPhone, validatePhone } from '../utils/formatters';
 
 export default function Login() {
   const { user, loginWithGoogle, signInWithEmail, signUpWithEmail, resetPassword } = useAuth();
@@ -48,6 +49,11 @@ export default function Login() {
         const loggedUser = await signInWithEmail(cleanEmail, password);
         console.log("Login realizado com sucesso:", loggedUser.uid);
       } else if (mode === 'register') {
+        if (!validatePhone(telefone)) {
+          setError('Por favor, insira um WhatsApp válido com DDD.');
+          setLoading(false);
+          return;
+        }
         const extraData = role === 'admin' ? { telefone, nomeEstetica: nome } : { telefone };
         const newUser = await signUpWithEmail(cleanEmail, password, nome, role, extraData);
         console.log("Cadastro realizado com sucesso:", newUser.uid);
@@ -192,7 +198,7 @@ export default function Login() {
                 required
                 className="w-full pl-12 pr-4 py-3 rounded-2xl border-2 border-gray-100 outline-none focus:border-pink-300 transition-all"
                 value={telefone}
-                onChange={(e) => setTelefone(e.target.value)}
+                onChange={(e) => setTelefone(maskPhone(e.target.value))}
               />
             </div>
           )}

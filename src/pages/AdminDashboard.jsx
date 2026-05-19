@@ -21,6 +21,7 @@ import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage
 import { uploadToSupabase } from '../services/supabase';
 import { format, startOfDay, endOfDay, isSameDay, startOfMonth, endOfMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { maskPhone, validatePhone } from '../utils/formatters';
 import { 
   Plus, 
   Pencil,
@@ -643,6 +644,10 @@ export default function AdminDashboard() {
 
   async function saveSettings(e) {
     e.preventDefault();
+    if (!validatePhone(profileInfo.telefone)) {
+      showToast("Por favor, insira um WhatsApp válido com DDD.", "error");
+      return;
+    }
     try {
       setLoading(true);
       
@@ -2516,8 +2521,7 @@ export default function AdminDashboard() {
                               type="tel"
                               required
                               value={profileInfo.telefone}
-                              onChange={e => setProfileInfo({...profileInfo, telefone: e.target.value})}
-                              className="w-full pl-12 pr-4 py-3 sm:py-4 bg-pink-50/50 border-2 border-transparent rounded-2xl outline-none focus:border-pink-300 transition-all font-bold text-gray-700 text-sm sm:text-base"
+                              onChange={e => setProfileInfo({...profileInfo, telefone: maskPhone(e.target.value)})}                              className="w-full pl-12 pr-4 py-3 sm:py-4 bg-pink-50/50 border-2 border-transparent rounded-2xl outline-none focus:border-pink-300 transition-all font-bold text-gray-700 text-sm sm:text-base"
                               placeholder="(00) 00000-0000"
                             />
                           </div>

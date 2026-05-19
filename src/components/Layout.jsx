@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ArrowLeftRight, LogOut, User, Calendar, Home, Phone, MessageCircleMore, Bell } from 'lucide-react';
+import { maskPhone, validatePhone } from '../utils/formatters';
 import InstallPWA from './InstallPWA';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../services/firebase';
@@ -82,6 +83,10 @@ export default function Layout({ children }) {
     const telefone = clientTelefone.trim();
     if (!nome || !telefone) {
       setClientError('Preencha seu nome e seu WhatsApp para continuar.');
+      return;
+    }
+    if (!validatePhone(telefone)) {
+      setClientError('Informe um WhatsApp válido com DDD.');
       return;
     }
 
@@ -463,7 +468,7 @@ export default function Layout({ children }) {
                 <Phone size={18} className="text-slate-400" />
                 <input
                   value={clientTelefone}
-                  onChange={(e) => setClientTelefone(e.target.value)}
+                  onChange={(e) => setClientTelefone(maskPhone(e.target.value))}
                   className="w-full bg-transparent text-sm font-bold text-slate-900 outline-none"
                   placeholder="(11) 99999-9999"
                 />

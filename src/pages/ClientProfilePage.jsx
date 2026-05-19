@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { db } from '../services/firebase';
 import { doc, updateDoc } from 'firebase/firestore';
+import { maskPhone, validatePhone } from '../utils/formatters';
 
 const AVATARS = [
   { id: 'avatar_01', url: 'https://api.dicebear.com/9.x/lorelei/svg?seed=Eden&backgroundColor=ffdfbf', label: 'Elegante', bgColor: 'bg-orange-50' },
@@ -82,10 +83,14 @@ export default function ClientProfilePage() {
     e.preventDefault();
     if (!user?.uid) return;
 
+    if (!validatePhone(formData.telefone)) {
+      alert('Por favor, insira um WhatsApp válido com DDD.');
+      return;
+    }
+
     try {
       setLoading(true);
-      const userRef = doc(db, 'users', user.uid);
-      await updateDoc(userRef, formData);
+      const userRef = doc(db, 'users', user.uid);      await updateDoc(userRef, formData);
       
       if (setUser) {
         setUser(prev => ({ ...prev, ...formData }));
@@ -227,7 +232,7 @@ export default function ClientProfilePage() {
                       type="tel"
                       required
                       value={formData.telefone}
-                      onChange={e => setFormData({ ...formData, telefone: e.target.value })}
+                      onChange={e => setFormData({ ...formData, telefone: maskPhone(e.target.value) })}
                       className="w-full rounded-2xl border-2 border-slate-200 bg-slate-50/30 pl-12 pr-5 py-4 text-sm font-bold text-slate-900 transition-all focus:border-slate-950 focus:bg-white focus:outline-none"
                       placeholder="(00) 00000-0000"
                     />

@@ -4,7 +4,7 @@ import { db } from '../../../services/firebase';
 import { doc, updateDoc } from 'firebase/firestore';
 import { motion } from 'framer-motion';
 import { generateUniqueSlug } from '../../../services/establishmentService';
-
+import { maskPhone, validatePhone } from '../../../utils/formatters';
 export default function BusinessInfoStep({ establishment, onComplete }) {
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
@@ -18,6 +18,9 @@ export default function BusinessInfoStep({ establishment, onComplete }) {
       return alert("Por favor, preencha o nome da estética e o WhatsApp.");
     }
 
+    if (!validatePhone(formData.telefone)) {
+      return alert("Por favor, insira um WhatsApp válido com DDD.");
+    }
     setLoading(true);
     try {
       const uniqueSlug = await generateUniqueSlug(formData.nome);
@@ -94,7 +97,7 @@ export default function BusinessInfoStep({ establishment, onComplete }) {
               required
               placeholder="(00) 00000-0000"
               value={formData.telefone}
-              onChange={(e) => setFormData({ ...formData, telefone: e.target.value })}
+              onChange={(e) => setFormData({ ...formData, telefone: maskPhone(e.target.value) })}
               className="w-full pl-11 pr-4 py-4 bg-pink-50/30 border-2 border-pink-50 rounded-2xl outline-none focus:border-pink-300 focus:bg-white transition-all font-bold text-gray-800 text-sm sm:text-base sm:py-5"
             />
           </div>
