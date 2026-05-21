@@ -47,7 +47,7 @@ const SidebarContent = ({ view, setView, logout, establishment, profileInfo, men
           </div>
           <div className="min-w-0">
             <h1 className="text-2xl font-black tracking-tighter bg-gradient-to-r from-pink-600 to-rose-500 bg-clip-text text-transparent" style={{ textShadow: '0 0 1px rgba(219, 39, 119, 0.2)' }}>
-              Bellizy
+              Musa Agenda
             </h1>
             {profileInfo?.nome && (
               <p className="text-xs text-pink-500 font-bold truncate">

@@ -955,8 +955,7 @@ export default function AdminDashboard() {
     return (
       <div className="flex flex-col items-center justify-center py-20 gap-4">
         <div className="w-12 h-12 border-4 border-pink-200 border-t-pink-600 rounded-full animate-spin"></div>
-        <p className="text-pink-600 font-medium italic animate-pulse">Bellizy...</p>
-      </div>
+        <p className="text-primary-600 font-medium italic animate-pulse">Musa Agenda...</p>      </div>
     );
   }
 
@@ -1003,7 +1002,7 @@ export default function AdminDashboard() {
       {/* Navegação Mobile */}
       <MobileTopbar 
         onMenuClick={() => setIsMenuOpen(true)} 
-        title="Bellizy" 
+        title="Musa Agenda"
         onNotificationsClick={() => {
           setShowNotifications(!showNotifications);
           if (!showNotifications) {
@@ -1033,7 +1032,7 @@ export default function AdminDashboard() {
             <div className="w-10 h-10 rounded-full bg-pink-100 flex items-center justify-center text-pink-600 md:hidden">
               <Store size={20} />
             </div>
-            <h1 className="text-xl font-black text-slate-900 tracking-tight uppercase md:hidden">Bellizy</h1>
+            <h1 className="text-xl font-black text-slate-900 tracking-tight uppercase md:hidden">Musa Agenda</h1>
           </div>
 
           <div className="flex items-center gap-2 sm:gap-4">

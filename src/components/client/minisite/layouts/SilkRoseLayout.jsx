@@ -229,7 +229,7 @@ export default function SilkRoseLayout({
           
           <div className="pt-8 flex flex-col items-center gap-4 opacity-40">
              <span className="text-[9px] font-black uppercase tracking-[0.4em] text-rose-300 text-center">Silk Rose Experience Layout</span>
-             <p className="text-[8px] font-black uppercase tracking-widest text-rose-200">Powered by Bellizy</p>
+             <p className="text-[8px] font-black uppercase tracking-widest text-rose-200">Powered by Musa Agenda</p>
           </div>
         </section>
 

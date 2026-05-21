@@ -10,8 +10,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'icon.svg', 'apple-touch-icon.png'],
       manifest: {
-        name: 'Bellizy',
-        short_name: 'Bellizy',
+        name: 'Musa Agenda',
+        short_name: 'Musa Agenda',
         description: 'Agendamento Online de Estética e Beleza',
         theme_color: '#db2777',
         background_color: '#ffffff',

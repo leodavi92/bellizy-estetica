@@ -158,7 +158,7 @@ export default function BookingSchedulePage() {
     return (
       <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 py-20">
         <div className="h-12 w-12 animate-spin rounded-full border-4 border-pink-200 border-t-pink-600" />
-        <p className="font-medium text-pink-600 italic">Bellizy...</p>
+        <p className="font-medium text-pink-600 italic">Musa Agenda...</p>
       </div>
     );
   }

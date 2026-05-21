@@ -99,7 +99,7 @@ export default function Login() {
           </div>
           
           <h1 className="text-4xl sm:text-5xl font-black tracking-tighter bg-gradient-to-r from-pink-600 to-rose-500 bg-clip-text text-transparent italic mb-3" style={{ textShadow: '0 0 1px rgba(219, 39, 119, 0.1)' }}>
-            Bellizy
+            Musa Agenda
           </h1>
           <div className="flex flex-col items-center gap-1 mb-8 sm:mb-10">
             <div className="h-px w-12 bg-pink-200" />

@@ -237,7 +237,7 @@ export default function AuraLayout({
             </a>
           </div>
 
-          <p className="text-center text-[8px] font-black uppercase tracking-[0.5em] opacity-20">Aura by Bellizy</p>
+          <p className="text-center text-[8px] font-black uppercase tracking-[0.5em] opacity-20">Aura by Musa Agenda</p>
         </section>
 
       </div>

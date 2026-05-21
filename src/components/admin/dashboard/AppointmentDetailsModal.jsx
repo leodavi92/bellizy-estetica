@@ -23,10 +23,23 @@ const AppointmentDetailsModal = ({ isOpen, onClose, appointment, onCancel, onCom
   if (!appointment) return null;
 
   const appDate = appointment.data_hora?.toDate ? appointment.data_hora.toDate() : new Date(appointment.data_hora);
-  const userPhone = appointment.user_phone || appointment.telefone || '';
+  
+  // Busca o telefone em múltiplos campos possíveis para garantir compatibilidade
+  const userPhone = appointment.user_telefone || 
+                    appointment.user_phone || 
+                    appointment.userPhone || 
+                    appointment.userTelefone || 
+                    appointment.telefone || 
+                    appointment.phone || 
+                    '';
+  
+  // Lógica corrigida para link do WhatsApp:
   const cleanPhone = userPhone.replace(/\D/g, '');
-  const formattedPhone = cleanPhone.startsWith('55') ? cleanPhone : `55${cleanPhone}`;
-  const whatsappUrl = `https://wa.me/${formattedPhone}`;
+  const formattedPhone = cleanPhone 
+    ? (cleanPhone.startsWith('55') && cleanPhone.length >= 12 ? cleanPhone : `55${cleanPhone}`)
+    : '';
+    
+  const whatsappUrl = formattedPhone ? `https://wa.me/${formattedPhone}` : '#';
   const userAvatar = appointment.user_avatar || appointment.avatar_url || appointment.photoURL || '';
 
   const handleClose = () => {
@@ -73,7 +86,7 @@ const AppointmentDetailsModal = ({ isOpen, onClose, appointment, onCancel, onCom
                 <div className="text-white">
                   <h3 className="text-2xl font-black tracking-tight">{appointment.user_nome}</h3>
                   <p className="text-white/80 font-medium flex items-center gap-1">
-                    <CheckCircle size={14} /> Cliente VIP
+                    {userPhone ? userPhone : 'Telefone não cadastrado'}
                   </p>
                 </div>
               </div>
@@ -152,22 +165,26 @@ const AppointmentDetailsModal = ({ isOpen, onClose, appointment, onCancel, onCom
 
                     {/* WhatsApp Action */}
                     <div className="space-y-3">
-                      <a
-                        href={whatsappUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center justify-center gap-3 w-full bg-green-500 hover:bg-green-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-green-100 transition-all active:scale-95"
+                      <button
+                        onClick={() => {
+                          if (!formattedPhone) return;
+                          window.open(`https://wa.me/${formattedPhone}`, '_blank');
+                        }}
+                        disabled={!formattedPhone}
+                        className={`flex items-center justify-center gap-3 w-full py-4 rounded-2xl font-bold shadow-lg transition-all active:scale-95 ${formattedPhone ? 'bg-green-500 hover:bg-green-600 text-white shadow-green-100' : 'bg-gray-200 text-gray-400 cursor-not-allowed shadow-none'}`}
                       >
                         <Phone size={20} />
                         <span>Conversar no WhatsApp</span>
-                      </a>
+                      </button>
                       
                       <button
                         onClick={() => {
+                          if (!formattedPhone) return;
                           const message = encodeURIComponent(`Olá ${appointment.user_nome}! ✨ Passando para confirmar seu agendamento de ${appointment.services ? appointment.services.map(s => s.nome).join(' + ') : appointment.service_nome} para ${format(appDate, "dd/MM 'às' HH:mm")}. Podemos confirmar?`);
                           window.open(`https://wa.me/${formattedPhone}?text=${message}`, '_blank');
                         }}
-                        className="flex items-center justify-center gap-3 w-full bg-white border-2 border-green-500 text-green-600 hover:bg-green-50 py-3.5 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all active:scale-95"
+                        disabled={!formattedPhone}
+                        className={`flex items-center justify-center gap-3 w-full border-2 py-3.5 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all active:scale-95 ${formattedPhone ? 'bg-white border-green-500 text-green-600 hover:bg-green-50' : 'bg-white border-gray-200 text-gray-400 cursor-not-allowed'}`}
                       >
                         <MessageSquare size={18} />
                         <span>Enviar Lembrete</span>

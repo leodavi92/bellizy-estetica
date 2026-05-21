@@ -172,7 +172,7 @@ export default function LuxuryLayout({
               </span>
             </div>
           </div>
-          <p className="text-[8px] font-bold uppercase tracking-[0.5em] text-white/20">Powered by Bellizy</p>
+          <p className="text-[8px] font-bold uppercase tracking-[0.5em] text-white/20">Powered by Musa Agenda</p>
         </motion.div>
       </motion.div>
 

@@ -235,10 +235,10 @@ export default function Layout({ children }) {
             className="flex items-center gap-3 group transition-all"
           >
             <div className="w-10 h-10 bg-gradient-to-br from-pink-500 to-rose-600 rounded-2xl flex items-center justify-center text-white font-black shadow-lg shadow-pink-200 rotate-3 group-hover:rotate-0 transition-transform">
-              P
+              M
             </div>
             <div className="text-left">
-              <h1 className="text-lg font-black text-gray-800 leading-none tracking-tight">Bellizy</h1>
+              <h1 className="text-lg font-black text-gray-800 leading-none tracking-tight">Musa Agenda</h1>
               <span className="text-[10px] text-pink-600 font-bold uppercase tracking-widest">Estética & Bem-estar</span>
             </div>
           </button>
@@ -341,7 +341,7 @@ export default function Layout({ children }) {
             <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/60 px-5 py-4">
               <div className="min-w-0">
                 <p className="text-[10px] font-black uppercase tracking-[0.2em] text-pink-600">Lembretes</p>
-                <p className="mt-1 text-sm font-black text-slate-900 truncate">Seu app Bellizy</p>
+                <p className="mt-1 text-sm font-black text-slate-900 truncate">Seu app Musa Agenda</p>
               </div>
               <button
                 type="button"
