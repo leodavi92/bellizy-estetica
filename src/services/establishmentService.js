@@ -14,6 +14,15 @@ export const DEFAULT_ESTABLISHMENT_SETTINGS = {
   dias_trabalho: [1, 2, 3, 4, 5, 6]
 };
 
+export const DEFAULT_MINISITE_SETTINGS = {
+  layoutId: 'simple',
+  paletteId: 'rose_gold',
+  bannerUrl: '',
+  bioText: 'Realcando sua beleza natural ✨',
+  showDescription: true,
+  identityMode: 'corporative'
+};
+
 export const sanitizeSlug = (value = '') =>
   value
     .toString()
@@ -84,6 +93,10 @@ export const normalizeEstablishmentData = (data = {}) => {
       trial_ends_at: Timestamp.fromDate(new Date(Date.now() + 15 * 24 * 60 * 60 * 1000)),
       plan: 'silver'
     },
+    minisite_settings: {
+      ...DEFAULT_MINISITE_SETTINGS,
+      ...(data.minisite_settings || {})
+    },
     setup_steps: data.setup_steps || {
       info_basica: false,
       logo: false,
@@ -116,6 +129,7 @@ export const buildEstablishmentPayload = (adminUid, data = {}) => {
     politica_cancelamento: normalized.politica_cancelamento,
     profile_completed: normalized.profile_completed,
     subscription: normalized.subscription,
+    minisite_settings: normalized.minisite_settings,
     setup_steps: normalized.setup_steps,
     createdAt: data.createdAt || Timestamp.now(),
     settings: normalized.settings

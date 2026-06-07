@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Clock, Calendar, Save, CheckCircle2, Power } from 'lucide-react';
+import { Clock, Calendar, Save, CheckCircle2, Coffee, ArrowRight } from 'lucide-react';
 import { db } from '../../../services/firebase';
 import { doc, updateDoc } from 'firebase/firestore';
 
@@ -16,23 +16,30 @@ const DAYS_OF_WEEK = [
 const DEFAULT_AVAILABILITY = {
   enabled: true,
   start: '08:00',
-  end: '18:00'
+  end: '18:00',
+  break_enabled: false,
+  break_start: '12:00',
+  break_end: '13:00'
 };
 
 export default function WeeklyAvailabilityEditor({ establishment, onSave }) {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
-  const [availability, setAvailability] = useState(
-    establishment?.availability_rules || {
-      monday: { ...DEFAULT_AVAILABILITY },
-      tuesday: { ...DEFAULT_AVAILABILITY },
-      wednesday: { ...DEFAULT_AVAILABILITY },
-      thursday: { ...DEFAULT_AVAILABILITY },
-      friday: { ...DEFAULT_AVAILABILITY },
-      saturday: { ...DEFAULT_AVAILABILITY, enabled: false },
-      sunday: { ...DEFAULT_AVAILABILITY, enabled: false }
-    }
-  );
+  const [availability, setAvailability] = useState(() => {
+    const base = establishment?.availability_rules || {};
+    const initial = {};
+    
+    DAYS_OF_WEEK.forEach(day => {
+      initial[day.id] = {
+        ...DEFAULT_AVAILABILITY,
+        ...(base[day.id] || {}),
+        // Garante que campos desativados por padrão em dias específicos (sab/dom) sejam mantidos se não houver base
+        enabled: base[day.id]?.enabled ?? (day.id !== 'saturday' && day.id !== 'sunday')
+      };
+    });
+    
+    return initial;
+  });
 
   const handleToggleDay = (dayId) => {
     setAvailability(prev => ({
@@ -105,23 +112,74 @@ export default function WeeklyAvailabilityEditor({ establishment, onSave }) {
             </div>
 
             {availability[day.id].enabled && (
-              <div className="flex items-center gap-3 flex-1">
-                <div className="relative flex-1">
-                  <input
-                    type="time"
-                    value={availability[day.id].start}
-                    onChange={(e) => handleChangeTime(day.id, 'start', e.target.value)}
-                    className="w-full p-3 bg-pink-50/50 border-2 border-transparent rounded-xl outline-none focus:border-pink-300 transition-all font-bold text-gray-700 text-sm"
-                  />
+              <div className="flex-1 space-y-4">
+                {/* Horário de Funcionamento */}
+                <div className="flex items-center gap-3">
+                  <div className="relative flex-1">
+                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-pink-400">
+                      <Clock size={14} />
+                    </div>
+                    <input
+                      type="time"
+                      value={availability[day.id].start}
+                      onChange={(e) => handleChangeTime(day.id, 'start', e.target.value)}
+                      className="w-full pl-9 p-3 bg-pink-50/50 border-2 border-transparent rounded-xl outline-none focus:border-pink-300 transition-all font-bold text-gray-700 text-sm"
+                    />
+                  </div>
+                  <span className="text-gray-400 font-bold">até</span>
+                  <div className="relative flex-1">
+                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-pink-400">
+                      <Clock size={14} />
+                    </div>
+                    <input
+                      type="time"
+                      value={availability[day.id].end}
+                      onChange={(e) => handleChangeTime(day.id, 'end', e.target.value)}
+                      className="w-full pl-9 p-3 bg-pink-50/50 border-2 border-transparent rounded-xl outline-none focus:border-pink-300 transition-all font-bold text-gray-700 text-sm"
+                    />
+                  </div>
                 </div>
-                <span className="text-gray-400 font-bold">até</span>
-                <div className="relative flex-1">
-                  <input
-                    type="time"
-                    value={availability[day.id].end}
-                    onChange={(e) => handleChangeTime(day.id, 'end', e.target.value)}
-                    className="w-full p-3 bg-pink-50/50 border-2 border-transparent rounded-xl outline-none focus:border-pink-300 transition-all font-bold text-gray-700 text-sm"
-                  />
+
+                {/* Horário de Almoço/Intervalo */}
+                <div className="pt-3 border-t border-dashed border-pink-100">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                      <Coffee size={12} />
+                      <span>Intervalo / Almoço</span>
+                    </div>
+                    <button
+                      onClick={() => handleChangeTime(day.id, 'break_enabled', !availability[day.id].break_enabled)}
+                      className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-lg transition-all ${
+                        availability[day.id].break_enabled 
+                        ? 'bg-amber-100 text-amber-600' 
+                        : 'bg-slate-100 text-slate-400'
+                      }`}
+                    >
+                      {availability[day.id].break_enabled ? 'Ativado' : 'Desativado'}
+                    </button>
+                  </div>
+
+                  {availability[day.id].break_enabled && (
+                    <div className="flex items-center gap-3 animate-in fade-in slide-in-from-top-2 duration-300">
+                      <div className="relative flex-1">
+                        <input
+                          type="time"
+                          value={availability[day.id].break_start || '12:00'}
+                          onChange={(e) => handleChangeTime(day.id, 'break_start', e.target.value)}
+                          className="w-full p-2.5 bg-amber-50/50 border-2 border-transparent rounded-xl outline-none focus:border-amber-300 transition-all font-bold text-gray-700 text-xs"
+                        />
+                      </div>
+                      <ArrowRight size={14} className="text-amber-300" />
+                      <div className="relative flex-1">
+                        <input
+                          type="time"
+                          value={availability[day.id].break_end || '13:00'}
+                          onChange={(e) => handleChangeTime(day.id, 'break_end', e.target.value)}
+                          className="w-full p-2.5 bg-amber-50/50 border-2 border-transparent rounded-xl outline-none focus:border-amber-300 transition-all font-bold text-gray-700 text-xs"
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

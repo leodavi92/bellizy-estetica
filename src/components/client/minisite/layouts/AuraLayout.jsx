@@ -24,15 +24,10 @@ export default function AuraLayout({
   const bannerUrl = settings?.bannerUrl || establishment.banner_url;
   const description = settings?.bioText || 'Realce sua essência natural com tratamentos de alta performance.';
 
-  // Limita a 4 serviços reais ou usa placeholders se não houver nenhum
+  // Limita a 4 serviços reais ou não mostra nada se não houver nenhum
   const displayServices = realServices && realServices.length > 0 
     ? realServices.slice(0, 4) 
-    : [
-        { id: '1', nome: 'Limpeza de Pele' },
-        { id: '2', nome: 'Design de Sobrancelhas' },
-        { id: '3', nome: 'Depilação a Laser' },
-        { id: '4', nome: 'Massagens Relaxantes' }
-      ];
+    : [];
 
   const containerVariants = {
     hidden: { opacity: 0 },
@@ -118,36 +113,38 @@ export default function AuraLayout({
           </motion.div>
         </section>
 
-        {/* 2. Services Grid */}
-        <section className="px-8 py-16 space-y-10">
-          <div className="text-center space-y-2">
-            <h2 className="text-3xl font-['Playfair_Display'] font-bold text-[#2D2A26]">Nossos Serviços</h2>
-            <div className={`h-1 w-12 mx-auto bg-[#C5A059]/30 rounded-full`} />
-          </div>
+        {/* 2. Services Grid - Só aparece se houver serviços */}
+        {displayServices.length > 0 && (
+          <section className="px-8 py-16 space-y-10">
+            <div className="text-center space-y-2">
+              <h2 className="text-3xl font-['Playfair_Display'] font-bold text-[#2D2A26]">Nossos Serviços</h2>
+              <div className={`h-1 w-12 mx-auto bg-[#C5A059]/30 rounded-full`} />
+            </div>
 
-          <div className="grid grid-cols-1 gap-4">
-            {displayServices.map((service, idx) => (
-              <motion.button
-                key={service.id || idx}
-                onClick={() => onBookClick(service.id)}
-                initial={{ opacity: 0, x: idx % 2 === 0 ? -20 : 20 }}
-                whileInView={{ opacity: 1, x: 0 }}
-                viewport={{ once: true }}
-                className={`w-full ${auraColors.card} p-6 rounded-[2rem] border border-[#F5F1EA] shadow-sm flex items-center justify-between group hover:border-[#C5A059]/30 transition-all text-left`}
-              >
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-2xl bg-[#FDFBF7] flex items-center justify-center text-[#C5A059]">
-                    <Sparkles size={20} />
+            <div className="grid grid-cols-1 gap-4">
+              {displayServices.map((service, idx) => (
+                <motion.button
+                  key={service.id || idx}
+                  onClick={() => onBookClick(service.id)}
+                  initial={{ opacity: 0, x: idx % 2 === 0 ? -20 : 20 }}
+                  whileInView={{ opacity: 1, x: 0 }}
+                  viewport={{ once: true }}
+                  className={`w-full ${auraColors.card} p-6 rounded-[2rem] border border-[#F5F1EA] shadow-sm flex items-center justify-between group hover:border-[#C5A059]/30 transition-all text-left`}
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-2xl bg-[#FDFBF7] flex items-center justify-center text-[#C5A059]">
+                      <Sparkles size={20} />
+                    </div>
+                    <span className="font-bold text-sm text-[#4A453E]">{service.nome}</span>
                   </div>
-                  <span className="font-bold text-sm text-[#4A453E]">{service.nome}</span>
-                </div>
-                <div className="w-10 h-10 rounded-full border border-[#F5F1EA] flex items-center justify-center text-[#C5A059] group-hover:bg-[#C5A059] group-hover:text-white transition-all">
-                  <ChevronRight size={18} />
-                </div>
-              </motion.button>
-            ))}
-          </div>
-        </section>
+                  <div className="w-10 h-10 rounded-full border border-[#F5F1EA] flex items-center justify-center text-[#C5A059] group-hover:bg-[#C5A059] group-hover:text-white transition-all">
+                    <ChevronRight size={18} />
+                  </div>
+                </motion.button>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* 3. Differentials */}
         <section className="px-8 py-16 bg-[#F9F7F2]">

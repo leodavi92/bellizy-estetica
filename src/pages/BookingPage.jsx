@@ -1,8 +1,11 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { ArrowLeft, Sparkles, LayoutGrid, Info } from 'lucide-react';
+import { ArrowLeft, Sparkles, LayoutGrid, Info, User, Check, ChevronRight } from 'lucide-react';
 import { getServices } from '../services/appointmentService';
 import { getEstablishmentBySlug } from '../services/establishmentService';
+import { db } from '../services/firebase';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { motion, AnimatePresence } from 'framer-motion';
 import ServiceSelectionCard from '../components/booking/ServiceSelectionCard';
 import BookingSummary from '../components/booking/BookingSummary';
 import CheckoutFooter from '../components/booking/CheckoutFooter';
@@ -14,8 +17,12 @@ export default function BookingPage() {
 
   const [establishment, setEstablishment] = useState(null);
   const [services, setServices] = useState([]);
-  const [selectedServices, setSelectedServices] = useState([]);
+  const [selectedServices, setSelectedServices] = useState([]); // Array de { service, professionalId }
+  const [team, setTeam] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // Helper para verificar se um serviço está selecionado e quem é o profissional
+  const getSelectedInfo = (serviceId) => selectedServices.find(s => s.service.id === serviceId);
 
   useEffect(() => {
     async function loadInitialData() {
@@ -35,13 +42,36 @@ export default function BookingPage() {
         const servicesData = await getServices(estData.id);
         setServices(servicesData);
 
+        // Busca a equipe do estabelecimento
+        const teamQuery = query(
+          collection(db, "professionals"),
+          where("establishment_id", "==", estData.id)
+        );
+        const teamSnap = await getDocs(teamQuery);
+        const teamData = teamSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        
+        // Adiciona a "Dona" como opção também se não houver equipe ou como opção principal
+        const owner = {
+          id: 'owner',
+          nome: estData.nome || 'Profissional',
+          cargo: 'Especialista Principal',
+          foto: estData.photoURL || estData.logo_url || '',
+          isOwner: true
+        };
+        
+        const fullTeam = [owner, ...teamData];
+        setTeam(fullTeam);
+
         // Pré-seleção de serviço via Query Param
         const params = new URLSearchParams(location.search);
         const preSelectedId = params.get('serviceId');
         if (preSelectedId && servicesData.length > 0) {
           const service = servicesData.find(s => s.id === preSelectedId);
           if (service) {
-            setSelectedServices([service]);
+            // Se tiver apenas um profissional que faz esse serviço, já pré-seleciona
+            const possibleProfs = fullTeam.filter(p => p.isOwner || (p.servicos && p.servicos.includes(service.id)));
+            const initialProfId = possibleProfs.length === 1 ? possibleProfs[0].id : null;
+            setSelectedServices([{ service: service, professionalId: initialProfId }]);
           }
         }
       } catch (error) {
@@ -56,26 +86,80 @@ export default function BookingPage() {
 
   const toggleService = (service) => {
     setSelectedServices(prev => {
-      const isSelected = prev.find(s => s.id === service.id);
+      const isSelected = prev.find(s => s.service.id === service.id);
       if (isSelected) {
-        return prev.filter(s => s.id !== service.id);
+        return prev.filter(s => s.service.id !== service.id);
       } else {
-        return [...prev, service];
+        // Verifica se só tem um profissional possível para esse serviço
+        const possibleProfs = team.filter(p => p.isOwner || (p.servicos && p.servicos.includes(service.id)));
+        const initialProfId = possibleProfs.length === 1 ? possibleProfs[0].id : null;
+        return [...prev, { service: service, professionalId: initialProfId }];
       }
     });
   };
 
+  const handleSelectProfessionalForService = (serviceId, professionalId) => {
+    setSelectedServices(prev => prev.map(s => 
+      s.service.id === serviceId ? { ...s, professionalId } : s
+    ));
+  };
+
   const totals = useMemo(() => {
-    return selectedServices.reduce((acc, service) => ({
-      price: acc.price + Number(service.preco || 0),
-      duration: acc.duration + Number(service.duracao || 0)
+    return selectedServices.reduce((acc, selected) => ({
+      price: acc.price + Number(selected.service.preco || 0),
+      duration: acc.duration + Number(selected.service.duracao || 0)
     }), { price: 0, duration: 0 });
   }, [selectedServices]);
 
+  // Helper para Avatar do Profissional
+  const renderProfessionalAvatar = (member) => {
+    if (member.foto) {
+      return <img src={member.foto} alt={member.nome} className="w-full h-full object-cover" />;
+    }
+    
+    const colors = [
+      'bg-pink-100 text-pink-600',
+      'bg-purple-100 text-purple-600',
+      'bg-blue-100 text-blue-600',
+      'bg-indigo-100 text-indigo-600',
+      'bg-emerald-100 text-emerald-600',
+      'bg-rose-100 text-rose-600',
+      'bg-amber-100 text-amber-600'
+    ];
+    
+    const charCode = (member.nome || 'M').charCodeAt(0);
+    const colorIndex = charCode % colors.length;
+    const initials = (member.nome || 'M').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+
+    return (
+      <div className={`w-full h-full ${colors[colorIndex]} flex items-center justify-center font-black text-xl tracking-tighter`}>
+        {initials}
+      </div>
+    );
+  };
+
   const handleContinue = () => {
     if (selectedServices.length === 0) return;
-    const ids = selectedServices.map(s => s.id).join(',');
-    navigate(`/${slug}/agendar/horarios/${ids}`);
+    
+    // Verifica se todos os serviços selecionados têm um profissional atribuído
+    const missingProfessional = selectedServices.find(s => !s.professionalId);
+    if (missingProfessional) {
+      alert(`Por favor, selecione um profissional para o serviço: ${missingProfessional.service.nome}`);
+      return;
+    }
+
+    // REORDENAMENTO POR PRIORIDADE: Garante que serviços prioritários venham primeiro na sequência
+    const sortedServices = [...selectedServices].sort((a, b) => {
+      const prioA = a.service?.prioridade || 0;
+      const prioB = b.service?.prioridade || 0;
+      return prioB - prioA;
+    });
+
+    // Criamos um mapa de serviceId -> professionalId
+    const assignments = sortedServices.map(s => `${s.service.id}:${s.professionalId}`).join(',');
+    const serviceIds = sortedServices.map(s => s.service.id).join(',');
+    
+    navigate(`/${slug}/agendar/horarios/${serviceIds}?assignments=${assignments}`);
   };
 
   if (loading) {
@@ -143,15 +227,71 @@ export default function BookingPage() {
           </div>
 
           {services.length > 0 ? (
-            <div className="grid gap-4 sm:grid-cols-1">
-              {services.map((service) => (
-                <ServiceSelectionCard
-                  key={service.id}
-                  service={service}
-                  isSelected={selectedServices.some(s => s.id === service.id)}
-                  onSelect={toggleService}
-                />
-              ))}
+            <div className="grid gap-6">
+              {services.map((service) => {
+                const selectedInfo = getSelectedInfo(service.id);
+                const isSelected = !!selectedInfo;
+                
+                // Profissionais que fazem este serviço específico
+                const possibleProfs = team.filter(p => p.isOwner || (p.servicos && p.servicos.includes(service.id)));
+
+                return (
+                  <div key={service.id} className="space-y-3">
+                    <ServiceSelectionCard
+                      service={service}
+                      isSelected={isSelected}
+                      onSelect={toggleService}
+                    />
+                    
+                    <AnimatePresence>
+                      {isSelected && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          className="overflow-hidden"
+                        >
+                          <div className="bg-slate-50/50 rounded-[2rem] p-6 border-2 border-dashed border-slate-200 ml-4">
+                            <div className="flex items-center gap-2 mb-4">
+                              <User size={14} className="text-pink-500" />
+                              <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Quem vai te atender neste serviço?</span>
+                            </div>
+                            
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                              {possibleProfs.map(prof => (
+                                <button
+                                  key={prof.id}
+                                  onClick={() => handleSelectProfessionalForService(service.id, prof.id)}
+                                  className={`flex items-center gap-3 p-3 rounded-2xl border-2 transition-all text-left ${
+                                    selectedInfo.professionalId === prof.id
+                                      ? 'border-pink-600 bg-white shadow-md'
+                                      : 'border-white bg-white/50 hover:border-pink-200'
+                                  }`}
+                                >
+                                  <div className="w-10 h-10 rounded-xl overflow-hidden bg-pink-100 shrink-0 shadow-sm">
+                                    {renderProfessionalAvatar(prof)}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p className={`text-xs font-bold truncate ${selectedInfo.professionalId === prof.id ? 'text-pink-600' : 'text-slate-700'}`}>
+                                      {prof.nome}
+                                    </p>
+                                    <p className="text-[9px] text-slate-400 font-bold uppercase truncate">{prof.cargo}</p>
+                                  </div>
+                                  {selectedInfo.professionalId === prof.id && (
+                                    <div className="ml-auto bg-pink-600 text-white rounded-full p-0.5">
+                                      <Check size={10} strokeWidth={4} />
+                                    </div>
+                                  )}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center rounded-[2.5rem] border-2 border-dashed border-slate-100 bg-white py-20 text-center">
@@ -170,10 +310,10 @@ export default function BookingPage() {
         <aside className="hidden w-full lg:block lg:w-[380px]">
           {selectedServices.length > 0 ? (
             <BookingSummary 
-              selectedServices={selectedServices}
+              selectedServices={selectedServices.map(s => s.service)}
               totals={totals}
               onContinue={handleContinue}
-              onRemove={toggleService}
+              onRemove={(service) => toggleService(service)}
             />
           ) : (
             <div className="sticky top-6 rounded-3xl border border-dashed border-slate-200 bg-slate-50/50 p-8 text-center">
@@ -187,7 +327,7 @@ export default function BookingPage() {
 
       {/* Mobile Floating Footer */}
       <CheckoutFooter 
-        selectedServices={selectedServices}
+        selectedServices={selectedServices.map(s => s.service)}
         totals={totals}
         onContinue={handleContinue}
       />

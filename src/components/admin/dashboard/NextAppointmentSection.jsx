@@ -5,11 +5,15 @@ import { Calendar, Clock, ChevronLeft, ChevronRight } from 'lucide-react';
 import UpcomingAppointmentCard from './UpcomingAppointmentCard';
 import AppointmentDetailsModal from './AppointmentDetailsModal';
 import { AnimatePresence, motion } from 'framer-motion';
-import { updateDoc, doc } from 'firebase/firestore';
+import { doc, updateDoc, getDoc, addDoc, collection, Timestamp } from 'firebase/firestore';
 import { db } from '../../../services/firebase';
+import { recordAppointmentTransaction } from '../../../services/financeService';
+import { createClientNotification } from '../../../services/notificationService';
 
-const NextAppointmentSection = ({ appointments }) => {
-  const [mode, setMode] = useState('next'); // 'next' | 'week'
+import AppointmentCalendar from './AppointmentCalendar';
+
+const NextAppointmentSection = ({ appointments, establishment, allProfessionals, onUpdateAppointment, onReschedule, allAppointments }) => {
+  const [mode, setMode] = useState('next'); // 'next' | 'week' | 'calendar'
   const [selectedApp, setSelectedApp] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedDay, setSelectedDay] = useState(new Date());
@@ -106,7 +110,44 @@ const NextAppointmentSection = ({ appointments }) => {
   const handleCancel = async (id) => {
     try {
       const ref = doc(db, "appointments", id);
+      const appSnap = await getDoc(ref);
+      const appData = appSnap.exists() ? { id: appSnap.id, ...appSnap.data() } : null;
+
+      if (!appData) return;
+
       await updateDoc(ref, { status: 'cancelled' });
+
+      // Notificação para o cliente
+      if (appData.user_id && appData.user_id !== 'manual') {
+        const servicesLabel = appData.service_nome || (appData.services && Array.isArray(appData.services) && appData.services.length > 0
+          ? appData.services.map(s => s.nome).join(' + ')
+          : 'Serviço');
+
+        await createClientNotification(
+          establishment?.id,
+          appData.user_id,
+          'appointment_cancelled',
+          'Agendamento Cancelado ❌',
+          `Seu agendamento de ${servicesLabel} foi cancelado pela estética.`
+        );
+      }
+
+      // Notificação interna para o profissional/admin
+      try {
+        await addDoc(collection(db, "notifications"), {
+          establishment_id: establishment?.id,
+          professional_id: appData.professional_id || 'owner',
+          type: 'appointment_cancelled',
+          title: 'Agendamento Cancelado ❌',
+          message: `${appData.user_nome} - O agendamento de ${appData.service_nome || 'Serviço'} foi cancelado.`,
+          read: false,
+          appointment_id: appData.id,
+          createdAt: Timestamp.now()
+        });
+      } catch (adminNotifError) {
+        console.error("Erro ao criar notificação interna:", adminNotifError);
+      }
+
     } catch (error) {
       console.error("Erro ao cancelar agendamento:", error);
       alert("Erro ao cancelar agendamento.");
@@ -116,7 +157,36 @@ const NextAppointmentSection = ({ appointments }) => {
   const handleComplete = async (id) => {
     try {
       const ref = doc(db, "appointments", id);
+      const appSnap = await getDoc(ref);
+      const appData = appSnap.exists() ? { id: appSnap.id, ...appSnap.data() } : null;
+
+      if (!appData) return;
+
       await updateDoc(ref, { status: 'completed' });
+
+      // Registra no financeiro
+      try {
+        await recordAppointmentTransaction(appData, establishment?.id, 'pix'); // Default pix para conclusão rápida
+      } catch (financeError) {
+        console.error("Erro ao registrar financeiro via Dashboard:", financeError);
+      }
+
+      // Notificação para o cliente
+      if (appData?.user_id && appData.user_id !== 'manual') {
+        try {
+          await addDoc(collection(db, "notifications"), {
+            establishment_id: establishment?.id,
+            user_id: appData.user_id,
+            type: 'appointment_completed',
+            title: 'Atendimento Finalizado! ✨',
+            message: `Sua sessão de ${appData.service_nome || 'Serviço'} foi concluída na ${establishment?.nome}.`,
+            read: false,
+            createdAt: Timestamp.now()
+          });
+        } catch (notifError) {
+          console.error("Erro ao enviar notificação:", notifError);
+        }
+      }
     } catch (error) {
       console.error("Erro ao finalizar agendamento:", error);
       alert("Erro ao finalizar agendamento.");
@@ -125,36 +195,53 @@ const NextAppointmentSection = ({ appointments }) => {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between px-2">
-        <div className="flex items-center gap-3">
-          <h3 className="text-lg font-black text-gray-800 flex items-center gap-2">
-            <Clock size={20} className="text-pink-600" />
-            Agenda
-          </h3>
-          <div className="flex bg-white p-1 rounded-2xl border border-pink-100 shadow-sm">
-            <button
-              type="button"
-              onClick={() => setMode('next')}
-              className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
-                mode === 'next' ? 'bg-pink-600 text-white shadow-md shadow-pink-100' : 'text-gray-400 hover:text-pink-600'
-              }`}
-            >
-              Próximos
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode('week')}
-              className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
-                mode === 'week' ? 'bg-pink-600 text-white shadow-md shadow-pink-100' : 'text-gray-400 hover:text-pink-600'
-              }`}
-            >
-              Semana
-            </button>
-          </div>
+      <div className="px-2 space-y-3">
+        <h3 className="text-lg font-black text-gray-800 flex items-center gap-2">
+          <Clock size={20} className="text-pink-600" />
+          Agenda
+        </h3>
+        
+        <div className="flex bg-white p-1.5 rounded-2xl border border-pink-100 shadow-sm w-full">
+          <button
+            type="button"
+            onClick={() => setMode('next')}
+            className={`flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+              mode === 'next' ? 'bg-pink-600 text-white shadow-md shadow-pink-100' : 'text-gray-400 hover:text-pink-600'
+            }`}
+          >
+            Próximos
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode('week')}
+            className={`flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+              mode === 'week' ? 'bg-pink-600 text-white shadow-md shadow-pink-100' : 'text-gray-400 hover:text-pink-600'
+            }`}
+          >
+            Semana
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode('calendar')}
+            className={`flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+              mode === 'calendar' ? 'bg-pink-600 text-white shadow-md shadow-pink-100' : 'text-gray-400 hover:text-pink-600'
+            }`}
+          >
+            Calendário
+          </button>
         </div>
       </div>
 
-      {mode === 'week' ? (
+      {mode === 'calendar' ? (
+        <AppointmentCalendar 
+          appointments={appointments}
+          selectedDate={selectedDay}
+          onDateSelect={(date) => {
+            setSelectedDay(date);
+            setMode('week'); // Volta para a semana para ver os agendamentos do dia selecionado
+          }}
+        />
+      ) : mode === 'week' ? (
         <div className="bg-white rounded-[2.5rem] border border-pink-100 shadow-sm overflow-hidden">
           <div className="px-6 py-4 flex items-center justify-between border-b border-pink-50 bg-pink-50/30">
             <div className="min-w-0">
@@ -358,6 +445,11 @@ const NextAppointmentSection = ({ appointments }) => {
         appointment={selectedApp}
         onCancel={handleCancel}
         onComplete={handleComplete}
+        establishment={establishment}
+        allProfessionals={allProfessionals}
+        onUpdateAppointment={onUpdateAppointment}
+        onReschedule={onReschedule}
+        allAppointments={allAppointments}
       />
     </div>
   );

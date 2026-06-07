@@ -5,13 +5,14 @@ import { Chrome, Mail, Lock, User, ArrowLeft, Sparkles, Store, MapPin, Phone } f
 import { maskPhone, validatePhone } from '../utils/formatters';
 
 export default function Login() {
-  const { user, loginWithGoogle, signInWithEmail, signUpWithEmail, resetPassword } = useAuth();
+  const { user, loginWithGoogle, signInWithEmail, signUpWithEmail, resetPassword, changePassword } = useAuth();
   const navigate = useNavigate();
   const [view, setView] = useState('selection'); // 'selection', 'auth'
-  const [mode, setMode] = useState('login'); // 'login', 'register', 'forgot'
+  const [mode, setMode] = useState('login'); // 'login', 'register', 'forgot', 'change_password'
   const [role, setRole] = useState('cliente'); // 'cliente', 'admin'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [nome, setNome] = useState('');
   const [endereco, setEndereco] = useState('');
   const [telefone, setTelefone] = useState('');
@@ -22,15 +23,26 @@ export default function Login() {
   // Redirecionamento automático se o usuário já estiver logado
   useEffect(() => {
     if (user) {
-      if (user.tipo === 'admin') {
-        navigate('/admin');
-      } else {
-        let lastSlug = localStorage.getItem('last_estetica_slug');
-        if (lastSlug) {
-          lastSlug = lastSlug.replace('estetica/', '');
-          navigate(`/${lastSlug}`);
+      // Se o usuário precisa trocar a senha, forçamos o modo change_password
+      if (user.requirePasswordChange) {
+        setView('auth');
+        setMode('change_password');
+        return;
+      }
+
+      const isAuthRoute = window.location.pathname === '/login' || window.location.pathname === '/';
+      
+      if (isAuthRoute) {
+        if (user.tipo === 'admin' || user.tipo === 'staff') {
+          navigate('/admin', { replace: true });
         } else {
-          navigate('/');
+          let lastSlug = localStorage.getItem('last_estetica_slug');
+          if (lastSlug) {
+            lastSlug = lastSlug.replace('estetica/', '');
+            navigate(`/${lastSlug}`, { replace: true });
+          } else {
+            navigate('/', { replace: true });
+          }
         }
       }
     }
@@ -46,7 +58,7 @@ export default function Login() {
 
     try {
       if (mode === 'login') {
-        const loggedUser = await signInWithEmail(cleanEmail, password);
+        const loggedUser = await signInWithEmail(cleanEmail, password, role);
         console.log("Login realizado com sucesso:", loggedUser.uid);
       } else if (mode === 'register') {
         if (!validatePhone(telefone)) {
@@ -60,13 +72,34 @@ export default function Login() {
       } else if (mode === 'forgot') {
         await resetPassword(cleanEmail);
         setMessage('E-mail de recuperação enviado! Verifique sua caixa de entrada.');
+      } else if (mode === 'change_password') {
+        if (password !== confirmPassword) {
+          setError('As senhas não coincidem.');
+          setLoading(false);
+          return;
+        }
+        if (password.length < 6) {
+          setError('A nova senha deve ter pelo menos 6 caracteres.');
+          setLoading(false);
+          return;
+        }
+        await changePassword(password);
+        setMessage('Senha atualizada com sucesso! Redirecionando...');
+        setTimeout(() => navigate('/admin'), 2000);
       }
     } catch (err) {
       console.error("Erro capturado na tela de login:", err);
-      if (err.code === 'auth/user-not-found') setError('Usuário não encontrado. Verifique o e-mail ou cadastre-se.');
+      
+      if (err.code === 'auth/email-already-in-use') {
+        if (role === 'admin') {
+          setError('Este e-mail já possui uma conta de cliente. Tente fazer LOGIN como "Dona de Estética" para migrar seu perfil.');
+        } else {
+          setError('Este e-mail já está em uso. Tente fazer login.');
+        }
+      }
+      else if (err.code === 'auth/user-not-found') setError('Usuário não encontrado. Verifique o e-mail ou cadastre-se.');
       else if (err.code === 'auth/wrong-password') setError('Senha incorreta.');
       else if (err.code === 'auth/invalid-credential') setError('E-mail ou senha incorretos.');
-      else if (err.code === 'auth/email-already-in-use') setError('Este e-mail já está em uso.');
       else if (err.code === 'auth/weak-password') setError('A senha deve ter pelo menos 6 caracteres.');
       else if (err.code === 'auth/too-many-requests') setError('Muitas tentativas. Tente novamente mais tarde.');
       else setError('Ocorreu um erro ao acessar. Verifique seus dados e tente novamente.');
@@ -156,10 +189,12 @@ export default function Login() {
           {mode === 'login' && (role === 'admin' ? 'Acesso Administrativo' : 'Bem-vinda(o)!')}
           {mode === 'register' && (role === 'admin' ? 'Crie seu Espaço' : 'Crie sua conta')}
           {mode === 'forgot' && 'Recuperar senha'}
+          {mode === 'change_password' && 'Troca de Senha'}
         </h1>
         <p className="text-gray-500 mb-8 text-center">
           {mode === 'login' && (role === 'admin' ? 'Gerencie sua agenda de qualquer lugar.' : 'Agende sua sessão de forma rápida.')}
           {mode === 'register' && (role === 'admin' ? 'Comece a profissionalizar sua estética hoje.' : 'Comece sua jornada de autocuidado.')}
+          {mode === 'change_password' && 'Por segurança, você deve definir uma nova senha no seu primeiro acesso.'}
         </p>
 
         {error && (
@@ -175,6 +210,17 @@ export default function Login() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {mode === 'change_password' && (
+            <div className="bg-pink-50 p-4 rounded-2xl border border-pink-100 mb-4">
+              <p className="text-xs font-bold text-pink-600">
+                Olá, {user?.nome}!
+              </p>
+              <p className="text-[10px] text-pink-400 mt-1 uppercase font-black tracking-widest">
+                Esta é uma medida de segurança obrigatória.
+              </p>
+            </div>
+          )}
+
           {mode === 'register' && (
             <div className="relative">
               <User className="absolute left-4 top-3.5 text-gray-400" size={20} />
@@ -182,7 +228,7 @@ export default function Login() {
                 type="text"
                 placeholder={role === 'admin' ? "Nome da Estética" : "Seu nome completo"}
                 required
-                className="w-full pl-12 pr-4 py-3 rounded-2xl border-2 border-gray-100 outline-none focus:border-pink-300 transition-all"
+                className="w-full pl-12 pr-4 py-3 rounded-2xl border-2 border-gray-100 outline-none focus:border-pink-300 transition-all font-bold text-gray-700"
                 value={nome}
                 onChange={(e) => setNome(e.target.value)}
               />
@@ -196,35 +242,51 @@ export default function Login() {
                 type="tel"
                 placeholder={role === 'admin' ? 'WhatsApp da Estética' : 'Seu WhatsApp'}
                 required
-                className="w-full pl-12 pr-4 py-3 rounded-2xl border-2 border-gray-100 outline-none focus:border-pink-300 transition-all"
+                className="w-full pl-12 pr-4 py-3 rounded-2xl border-2 border-gray-100 outline-none focus:border-pink-300 transition-all font-bold text-gray-700"
                 value={telefone}
                 onChange={(e) => setTelefone(maskPhone(e.target.value))}
               />
             </div>
           )}
 
-          <div className="relative">
-            <Mail className="absolute left-4 top-3.5 text-gray-400" size={20} />
-            <input
-              type="email"
-              placeholder="E-mail"
-              required
-              className="w-full pl-12 pr-4 py-3 rounded-2xl border-2 border-gray-100 outline-none focus:border-pink-300 transition-all"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-          </div>
+          {mode !== 'change_password' && (
+            <div className="relative">
+              <Mail className="absolute left-4 top-3.5 text-gray-400" size={20} />
+              <input
+                type="email"
+                placeholder="E-mail"
+                required
+                className="w-full pl-12 pr-4 py-3 rounded-2xl border-2 border-gray-100 outline-none focus:border-pink-300 transition-all font-bold text-gray-700"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
+          )}
 
           {mode !== 'forgot' && (
             <div className="relative">
               <Lock className="absolute left-4 top-3.5 text-gray-400" size={20} />
               <input
                 type="password"
-                placeholder="Senha"
+                placeholder={mode === 'change_password' ? "Nova Senha" : "Senha"}
                 required
-                className="w-full pl-12 pr-4 py-3 rounded-2xl border-2 border-gray-100 outline-none focus:border-pink-300 transition-all"
+                className="w-full pl-12 pr-4 py-3 rounded-2xl border-2 border-gray-100 outline-none focus:border-pink-300 transition-all font-bold text-gray-700"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+          )}
+
+          {mode === 'change_password' && (
+            <div className="relative">
+              <Lock className="absolute left-4 top-3.5 text-gray-400" size={20} />
+              <input
+                type="password"
+                placeholder="Confirme a Nova Senha"
+                required
+                className="w-full pl-12 pr-4 py-3 rounded-2xl border-2 border-gray-100 outline-none focus:border-pink-300 transition-all font-bold text-gray-700"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
               />
             </div>
           )}
@@ -236,7 +298,8 @@ export default function Login() {
           >
             {loading ? 'Processando...' : (
               mode === 'login' ? 'Entrar' : 
-              mode === 'register' ? 'Criar Conta' : 'Enviar Link'
+              mode === 'register' ? 'Criar Conta' : 
+              mode === 'forgot' ? 'Enviar Link' : 'Definir Nova Senha'
             )}
           </button>
         </form>

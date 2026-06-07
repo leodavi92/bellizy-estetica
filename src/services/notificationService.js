@@ -11,6 +11,7 @@ export const createInternalNotification = async (establishmentId, appointmentDat
     
     await addDoc(collection(db, "notifications"), {
       establishment_id: establishmentId,
+      professional_id: appointmentData.professional_id || 'owner',
       type: 'new_appointment',
       title: 'Novo Agendamento! 📅',
       message: `${appointmentData.user_nome} agendou ${appointmentData.service_nome} para o dia ${format(start, "dd/MM 'às' HH:mm")}`,
@@ -39,4 +40,23 @@ export const sendConfirmationEmail = async (clientEmail, appointmentData) => {
   // });
 
   return true;
+};
+
+/**
+ * Cria uma notificação para o cliente
+ */
+export const createClientNotification = async (establishmentId, userId, type, title, message) => {
+  try {
+    await addDoc(collection(db, "notifications"), {
+      establishment_id: establishmentId,
+      user_id: userId,
+      type,
+      title,
+      message,
+      read: false,
+      createdAt: Timestamp.now()
+    });
+  } catch (err) {
+    console.error("Erro ao criar notificação para o cliente:", err);
+  }
 };

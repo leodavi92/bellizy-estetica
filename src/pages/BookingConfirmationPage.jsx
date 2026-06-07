@@ -13,11 +13,17 @@ import {
   MessageCircle, 
   PlusCircle,
   CalendarDays,
-  Sparkles
+  Sparkles,
+  User,
+  AlertTriangle,
+  ArrowRight
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { createAppointment, getServices } from '../services/appointmentService';
 import { getEstablishmentBySlug } from '../services/establishmentService';
+import { db } from '../services/firebase';
+import { doc, getDoc } from 'firebase/firestore';
+import { motion, AnimatePresence } from 'framer-motion';
 
 export default function BookingConfirmationPage() {
   const { slug } = useParams();
@@ -30,7 +36,9 @@ export default function BookingConfirmationPage() {
     selectedServicesIds = '', 
     selectedDateStr = '', 
     totalDuration = 0, 
-    totalPrice = 0 
+    totalPrice = 0,
+    assignments = '', // Novo: serviceId:professionalId,...
+    professionalId = null 
   } = location.state || {};
 
   const [establishment, setEstablishment] = useState(null);
@@ -38,7 +46,10 @@ export default function BookingConfirmationPage() {
   const [loading, setLoading] = useState(true);
   const [isPolicyAccepted, setIsPolicyAccepted] = useState(false);
   const [bookingSuccess, setBookingSuccess] = useState(false);
+  const [conflictError, setConflictError] = useState(false);
   const [confirmedAppointment, setConfirmedAppointment] = useState(null);
+  const [professional, setProfessional] = useState(null);
+  const [assignedProfessionals, setAssignedProfessionals] = useState({}); // Mapa de professionalId -> dados do prof
 
   const selectedDate = useMemo(() => selectedDateStr ? new Date(selectedDateStr) : null, [selectedDateStr]);
 
@@ -47,6 +58,24 @@ export default function BookingConfirmationPage() {
     const ids = selectedServicesIds.split(',');
     return services.filter(s => ids.includes(s.id));
   }, [services, selectedServicesIds]);
+
+  // Parse das atribuições para facilitar o uso na UI e aplicar REORDENAMENTO POR PRIORIDADE
+  const serviceAssignments = useMemo(() => {
+    if (!assignments || selectedServices.length === 0) return [];
+    
+    const parsed = assignments.split(',').map(pair => {
+      const [sId, pId] = pair.split(':');
+      const service = selectedServices.find(s => s.id === sId);
+      return { service, professionalId: pId };
+    });
+
+    // Ordenar por prioridade (idêntico ao motor de busca)
+    return parsed.sort((a, b) => {
+      const prioA = a.service?.prioridade || 0;
+      const prioB = b.service?.prioridade || 0;
+      return prioB - prioA;
+    });
+  }, [assignments, selectedServices]);
 
   useEffect(() => {
     async function loadData() {
@@ -66,43 +95,108 @@ export default function BookingConfirmationPage() {
 
         const servicesData = await getServices(estData.id);
         setServices(servicesData);
+
+        // Busca dados de TODOS os profissionais envolvidos
+        if (assignments) {
+          const profIds = [...new Set(assignments.split(',').map(p => p.split(':')[1]))];
+          const profsData = {};
+          
+          for (const id of profIds) {
+            if (id === 'owner') {
+              profsData[id] = {
+                id: 'owner',
+                nome: estData.nome || 'Profissional Principal',
+                cargo: 'Especialista Principal'
+              };
+            } else {
+              const profDoc = await getDoc(doc(db, "professionals", id));
+              if (profDoc.exists()) {
+                profsData[id] = { id: profDoc.id, ...profDoc.data() };
+              }
+            }
+          }
+          setAssignedProfessionals(profsData);
+        } else if (professionalId) {
+          // Fallback legacy
+          if (professionalId === 'owner') {
+            const owner = {
+              id: 'owner',
+              nome: estData.nome || 'Profissional Principal',
+              cargo: 'Especialista Principal'
+            };
+            setProfessional(owner);
+            setAssignedProfessionals({ owner });
+          } else {
+            const profDoc = await getDoc(doc(db, "professionals", professionalId));
+            if (profDoc.exists()) {
+              const pData = { id: profDoc.id, ...profDoc.data() };
+              setProfessional(pData);
+              setAssignedProfessionals({ [professionalId]: pData });
+            }
+          }
+        }
       } catch (error) {
         console.error('Erro ao carregar confirmação:', error);
       } finally {
-        // CORREÇÃO: Garantir que o loading só seja removido aqui no início
         setLoading(false);
       }
     }
     loadData();
-  }, [slug, selectedDate, navigate]);
+  }, [slug, selectedDate, navigate, professionalId, assignments]);
 
   const handleConfirm = async () => {
+    if (!establishment || !user || selectedServices.length === 0) {
+      alert("Dados incompletos para o agendamento.");
+      return;
+    }
+
     try {
       setLoading(true);
-      // Pequeno delay para passar a sensação de processamento
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      await new Promise(resolve => setTimeout(resolve, 2000));
       
+      const start = selectedDate;
+      const dur = totalDuration;
+      
+      // Gera o Itinerário de Beleza (horários quebrados por serviço)
+      let currentOffset = 0;
+      const itinerary = serviceAssignments.map(a => {
+        const sStart = addMinutes(start, currentOffset);
+        const sDur = Number(a.service.duracao || 30);
+        const sEnd = addMinutes(sStart, sDur);
+        const item = {
+          service_id: a.service.id,
+          service_nome: a.service.nome,
+          professional_id: a.professionalId,
+          professional_nome: assignedProfessionals[a.professionalId]?.nome || 'Profissional',
+          start_time: sStart,
+          end_time: sEnd,
+          duracao: sDur,
+          preco: Number(a.service.preco || 0)
+        };
+        currentOffset += sDur;
+        return item;
+      });
+
       const appointmentData = {
         establishment_id: establishment.id,
         establishment_name: establishment.nome,
         user_id: user.uid,
-        user_nome: user.nome,
+        user_nome: user.nome || user.displayName || 'Cliente',
         user_email: user.email || '',
         user_avatar: user.photoURL || user.avatar_url || '',
         user_telefone: user.telefone || user.phone || '',
-        services: selectedServices.map(s => ({
-          id: s.id,
-          nome: s.nome,
-          duracao: s.duracao,
-          preco: s.preco
-        })),
-        data_hora: selectedDate,
-        total_duration: totalDuration,
+        services: itinerary, // Agora com horários específicos por serviço
+        itinerary: itinerary, // Salva duplicado para facilidade de acesso
+        data_hora: start,
+        total_duration: dur,
         total_price: totalPrice,
-        service_id: selectedServices[0].id,
-        service_nome: selectedServices.map(s => s.nome).join(', '),
-        duration: totalDuration,
-        preco: totalPrice
+        professional_id: professionalId || serviceAssignments[0]?.professionalId || 'owner',
+        professional_nome: professional?.nome || assignedProfessionals[serviceAssignments[0]?.professionalId]?.nome || '',
+        service_id: selectedServices[0]?.id || '',
+        service_nome: selectedServices.map(s => s.nome).join(', ') || 'Serviço',
+        duration: dur,
+        preco: totalPrice,
+        assignments: assignments
       };
 
       const appointmentId = await createAppointment(appointmentData);
@@ -115,7 +209,11 @@ export default function BookingConfirmationPage() {
       setBookingSuccess(true);
     } catch (error) {
       console.error('Erro ao confirmar agendamento:', error);
-      alert('Erro ao confirmar. Tente novamente.');
+      if (error.code === 'SLOT_TAKEN') {
+        setConflictError(true);
+      } else {
+        alert('Erro ao confirmar. Tente novamente.');
+      }
     } finally {
       setLoading(false);
     }
@@ -157,9 +255,47 @@ export default function BookingConfirmationPage() {
             100% { width: 100%; }
           }
           .animate-progress-bar {
-            animation: progress-bar 1.5s ease-in-out forwards;
+            animation: progress-bar 2s ease-in-out forwards;
           }
         `}} />
+      </div>
+    );
+  }
+
+  if (conflictError) {
+    return (
+      <div className="mx-auto max-w-2xl px-4 py-10 animate-in fade-in zoom-in duration-500">
+        <div className="rounded-[3rem] bg-white p-10 text-center shadow-2xl shadow-slate-200 border-2 border-amber-100">
+          <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-full bg-amber-50 text-amber-500 mb-6">
+            <AlertTriangle size={56} />
+          </div>
+          
+          <h1 className="text-3xl font-black tracking-tight text-slate-900">
+            Ops! Esse horário já foi preenchido.
+          </h1>
+          <p className="mt-4 text-slate-500 font-medium leading-relaxed">
+            Parece que outra pessoa acabou de reservar esse mesmo horário enquanto você finalizava. ✨
+            <br />
+            Por favor, escolha outro horário disponível para o seu atendimento.
+          </p>
+
+          <div className="mt-10 flex flex-col gap-4">
+            <button
+              onClick={() => navigate(`/${slug}/agendar/horarios/${selectedServicesIds}?professionalId=${professionalId}`)}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-pink-600 py-5 text-base font-black text-white transition-all hover:bg-pink-700 shadow-xl shadow-pink-100 active:scale-95"
+            >
+              <Calendar size={20} />
+              <span>Escolher outro horário</span>
+            </button>
+
+            <button
+              onClick={() => navigate(`/${slug}/agendar`)}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-100 py-4 text-sm font-bold text-slate-600 transition-all hover:bg-slate-200"
+            >
+              <span>Voltar ao início</span>
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
@@ -181,14 +317,36 @@ export default function BookingConfirmationPage() {
 
           <div className="mt-10 rounded-3xl border border-slate-100 bg-slate-50/50 p-6 text-left">
             <div className="flex flex-col gap-4">
+              {Object.values(assignedProfessionals).length > 0 && (
+                <div className="flex flex-col gap-3">
+                  <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Profissional(is)</p>
+                  <div className="flex flex-wrap gap-3">
+                    {Object.values(assignedProfessionals).map(prof => (
+                      <div key={prof.id} className="flex items-center gap-3 bg-white p-2 pr-4 rounded-2xl shadow-sm">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-pink-50 text-pink-600 overflow-hidden shrink-0">
+                          {prof.foto ? (
+                            <img src={prof.foto} alt={prof.nome} className="w-full h-full object-cover" />
+                          ) : (
+                            <User size={20} />
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold text-slate-900 truncate">{prof.nome}</p>
+                          <p className="text-[10px] text-slate-400 font-bold uppercase">{prof.cargo}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="flex items-center gap-4">
                 <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white shadow-sm text-pink-600">
                   <Calendar size={24} />
                 </div>
                 <div>
                   <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Data</p>
-                  <p className="font-bold text-slate-900">
-                    {format(selectedDate, "EEEE, dd 'de' MMMM", { locale: ptBR })}
+                  <p className="font-bold text-slate-900 capitalize">
+                    {format(selectedDate, "dd 'de' MMMM", { locale: ptBR })}
                   </p>
                 </div>
               </div>
@@ -207,14 +365,38 @@ export default function BookingConfirmationPage() {
             </div>
 
             <div className="mt-6 border-t border-slate-200 pt-6">
-              <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-3">Serviços</p>
-              <div className="space-y-2">
-                {selectedServices.map(s => (
-                  <div key={s.id} className="flex items-center gap-2 text-sm font-medium text-slate-700">
-                    <CheckCircle2 size={14} className="text-emerald-500" />
-                    <span>{s.nome}</span>
-                  </div>
-                ))}
+              <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-4">Seu Itinerário de Beleza</p>
+              <div className="space-y-4">
+                {(() => {
+                  let runningTime = selectedDate;
+                  const items = confirmedAppointment?.itinerary || confirmedAppointment?.services || [];
+                  
+                  return items.map((item, idx) => {
+                    let sTime = item.start_time?.toDate ? item.start_time.toDate() : (item.start_time ? new Date(item.start_time) : runningTime);
+                    const sDur = Number(item.duracao || item.duration || 30);
+                    runningTime = addMinutes(sTime, sDur);
+
+                    return (
+                      <div key={idx} className="flex gap-4 items-start group">
+                        <div className="flex flex-col items-center">
+                          <div className="w-8 h-8 rounded-full bg-pink-50 text-pink-600 flex items-center justify-center text-xs font-black border-2 border-pink-100 group-hover:bg-pink-600 group-hover:text-white transition-all">
+                            {format(sTime, 'HH:mm')}
+                          </div>
+                          {idx !== (items.length - 1) && (
+                            <div className="w-0.5 h-10 bg-pink-100" />
+                          )}
+                        </div>
+                        <div className="pt-1">
+                          <p className="text-sm font-black text-slate-800 uppercase tracking-tight">{item.service_nome || item.nome}</p>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-1 mt-0.5">
+                            <User size={10} className="text-pink-400" />
+                            {item.professional_nome}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
               </div>
             </div>
           </div>
@@ -300,19 +482,48 @@ export default function BookingConfirmationPage() {
                       <p className="text-xs font-medium text-slate-400">{totalDuration} min de duração</p>
                     </div>
                   </div>
+
+                  {Object.values(assignedProfessionals).length > 0 && (
+                    <div className="space-y-3">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Profissionais</p>
+                      <div className="flex flex-wrap gap-2">
+                        {Object.values(assignedProfessionals).map(prof => (
+                          <div key={prof.id} className="flex items-center gap-3 bg-white p-2 pr-4 rounded-2xl shadow-sm border border-slate-100">
+                            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-pink-50 text-pink-600 overflow-hidden shrink-0">
+                              {prof.foto ? (
+                                <img src={prof.foto} alt={prof.nome} className="w-full h-full object-cover" />
+                              ) : (
+                                <User size={20} />
+                              )}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-sm font-bold text-slate-900 truncate">{prof.nome}</p>
+                              <p className="text-[10px] text-slate-400 font-bold uppercase">{prof.cargo}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="rounded-3xl bg-slate-50 p-6">
                   <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-4">Serviços Selecionados</p>
-                  <div className="space-y-3">
-                    {selectedServices.map(s => (
-                      <div key={s.id} className="flex justify-between gap-2">
-                        <span className="text-sm font-bold text-slate-700">{s.nome}</span>
-                        <span className="text-sm font-bold text-slate-900">{formatPrice(s.preco)}</span>
+                  <div className="space-y-4">
+                    {serviceAssignments.map(a => (
+                      <div key={a.service.id} className="space-y-1">
+                        <div className="flex justify-between gap-2">
+                          <span className="text-sm font-bold text-slate-700">{a.service.nome}</span>
+                          <span className="text-sm font-bold text-slate-900">{formatPrice(a.service.preco)}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-[9px] font-black uppercase text-pink-500 bg-pink-50 w-fit px-1.5 py-0.5 rounded-md">
+                          <User size={10} />
+                          {assignedProfessionals[a.professionalId]?.nome || 'Profissional'}
+                        </div>
                       </div>
                     ))}
                   </div>
-                  <div className="mt-4 border-t border-slate-200 pt-4 flex justify-between items-center">
+                  <div className="mt-6 border-t border-slate-200 pt-4 flex justify-between items-center">
                     <span className="text-sm font-black text-slate-900">Valor Total</span>
                     <span className="text-xl font-black text-pink-600">{formatPrice(totalPrice)}</span>
                   </div>

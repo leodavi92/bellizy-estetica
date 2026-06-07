@@ -315,6 +315,7 @@ function QuickBlockModal({ date, establishment, appointments, onClose }) {
   const slots = React.useMemo(() => {
     const dayName = format(date, 'eeee', { locale: enUS }).toLowerCase();
     const rule = establishment?.availability_rules?.[dayName] || { enabled: false, start: '08:00', end: '18:00' };
+    const slotInterval = Number(establishment?.settings?.slot_interval || 30);
     
     if (!rule.enabled && !isFullDay) return [];
 
@@ -330,7 +331,7 @@ function QuickBlockModal({ date, establishment, appointments, onClose }) {
 
     while (current < limit) {
       slotsList.push(new Date(current));
-      current = addMinutes(current, 30);
+      current = addMinutes(current, slotInterval);
     }
     
     return slotsList;
@@ -347,6 +348,7 @@ function QuickBlockModal({ date, establishment, appointments, onClose }) {
 
   const hasConflict = React.useMemo(() => {
     if (isFullDay) return appointments.length > 0;
+    const slotInterval = Number(establishment?.settings?.slot_interval || 30);
     
     return appointments.some(app => {
       const appStart = app.data_hora?.toDate ? app.data_hora.toDate() : new Date(app.data_hora);
@@ -356,12 +358,12 @@ function QuickBlockModal({ date, establishment, appointments, onClose }) {
         const [h, m] = slotStr.split(':').map(Number);
         const slotStart = new Date(date);
         slotStart.setHours(h, m, 0, 0);
-        const slotEnd = addMinutes(slotStart, 30);
+        const slotEnd = addMinutes(slotStart, slotInterval);
         
         return slotStart < appEnd && slotEnd > appStart;
       });
     });
-  }, [selectedSlots, isFullDay, appointments, date]);
+  }, [selectedSlots, isFullDay, appointments, date, establishment]);
 
   const handleAddBlock = async () => {
     if (hasConflict && !showConflictWarning) {
@@ -373,6 +375,7 @@ function QuickBlockModal({ date, establishment, appointments, onClose }) {
     try {
       const estRef = doc(db, 'establishments', establishment.id);
       const dateStr = format(date, 'yyyy-MM-dd');
+      const slotInterval = Number(establishment?.settings?.slot_interval || 30);
       
       let newBlocks = [];
 
@@ -394,18 +397,18 @@ function QuickBlockModal({ date, establishment, appointments, onClose }) {
           return;
         }
 
-        // Para simplificar, vamos criar um bloco para cada slot de 30min
+        // Para simplificar, vamos criar um bloco para cada slot
         // Ou podemos tentar agrupar. Vamos agrupar para ficar mais limpo.
         let currentBlock = null;
 
         sortedSlots.forEach((slotStr, index) => {
           const [h, m] = slotStr.split(':').map(Number);
           if (!currentBlock) {
-            currentBlock = { start: slotStr, end: format(addMinutes(new Date(2000, 0, 1, h, m), 30), 'HH:mm') };
+            currentBlock = { start: slotStr, end: format(addMinutes(new Date(2000, 0, 1, h, m), slotInterval), 'HH:mm') };
           } else {
             const lastEnd = currentBlock.end;
             if (lastEnd === slotStr) {
-              currentBlock.end = format(addMinutes(new Date(2000, 0, 1, h, m), 30), 'HH:mm');
+              currentBlock.end = format(addMinutes(new Date(2000, 0, 1, h, m), slotInterval), 'HH:mm');
             } else {
               newBlocks.push({
                 id: Math.random().toString(36).substr(2, 9),
@@ -415,7 +418,7 @@ function QuickBlockModal({ date, establishment, appointments, onClose }) {
                 reason: reason,
                 createdAt: new Date().toISOString()
               });
-              currentBlock = { start: slotStr, end: format(addMinutes(new Date(2000, 0, 1, h, m), 30), 'HH:mm') };
+              currentBlock = { start: slotStr, end: format(addMinutes(new Date(2000, 0, 1, h, m), slotInterval), 'HH:mm') };
             }
           }
 
@@ -504,10 +507,11 @@ function QuickBlockModal({ date, establishment, appointments, onClose }) {
                 {slots.map((slot) => {
                   const slotStr = format(slot, 'HH:mm');
                   const isSelected = selectedSlots.includes(slotStr);
+                  const slotInterval = Number(establishment?.settings?.slot_interval || 30);
                   const isOccupied = appointments.some(app => {
                     const appStart = app.data_hora?.toDate ? app.data_hora.toDate() : new Date(app.data_hora);
                     const appEnd = addMinutes(appStart, app.duration || 30);
-                    const slotEnd = addMinutes(slot, 30);
+                    const slotEnd = addMinutes(slot, slotInterval);
                     return slot < appEnd && slotEnd > appStart;
                   });
 

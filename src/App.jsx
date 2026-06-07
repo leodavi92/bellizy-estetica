@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { Sparkles, ArrowRight, Store, Star, Trash2 } from 'lucide-react';
 import Login from './pages/Login';
@@ -9,6 +9,7 @@ import ClientAppointmentsPage from './pages/ClientAppointmentsPage';
 import BookingPage from './pages/BookingPage';
 import BookingSchedulePage from './pages/BookingSchedulePage';
 import BookingConfirmationPage from './pages/BookingConfirmationPage';
+import ClientAnamnesisPage from './pages/ClientAnamnesisPage';
 import AdminDashboard from './pages/AdminDashboard';
 import Layout from './components/Layout';
 import { db } from './services/firebase';
@@ -20,14 +21,16 @@ function PrivateRoute({ children, adminOnly = false }) {
 
   if (loading) return <div className="min-h-screen flex items-center justify-center">Carregando...</div>;
   if (!user) return <Navigate to="/login" />;
-  if (adminOnly && user.tipo !== 'admin') return <Navigate to="/" />;
+  
+  // Se for adminOnly, permite tanto 'admin' quanto 'staff'
+  if (adminOnly && user.tipo !== 'admin' && user.tipo !== 'staff') return <Navigate to="/" />;
 
   return children;
 }
 
 function RootRedirect() {
   const { user } = useAuth();
-  if (user?.tipo === 'admin') {
+  if (user?.tipo === 'admin' || user?.tipo === 'staff') {
     return <Navigate to="/admin" replace />;
   }
 
@@ -246,9 +249,16 @@ function ClientHub() {
 
 function AdminRoute({ children }) {
   const { user, loading } = useAuth();
+  const location = useLocation();
+  const [isRedirecting, setIsRedirecting] = useState(false);
 
   if (loading) return <div className="min-h-screen flex items-center justify-center">Carregando...</div>;
-  if (!user || user.tipo !== 'admin') return <Navigate to="/login" />;
+  
+  if (!user || (user.tipo !== 'admin' && user.tipo !== 'staff')) {
+    if (isRedirecting) return null;
+    console.log("AdminRoute: Bloqueando acesso. User:", user?.uid, "Tipo:", user?.tipo);
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
 
   return children;
 }
@@ -291,6 +301,12 @@ function App() {
           <Route path="/:slug/agenda" element={
             <Layout>
               <ClientAppointmentsPage />
+            </Layout>
+          } />
+
+          <Route path="/:slug/anamnese/:appointmentId" element={
+            <Layout>
+              <ClientAnamnesisPage />
             </Layout>
           } />
 

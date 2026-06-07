@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeftRight, LogOut, User, Calendar, Home, Phone, MessageCircleMore, Bell } from 'lucide-react';
+import { ArrowLeftRight, LogOut, User, Calendar, Home, Phone, MessageCircleMore, Bell, X } from 'lucide-react';
 import { maskPhone, validatePhone } from '../utils/formatters';
 import InstallPWA from './InstallPWA';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, updateDoc, collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { getEstablishmentBySlug, getWhatsAppUrl } from '../services/establishmentService';
 import { getMyAppointments } from '../services/appointmentService';
@@ -29,6 +29,8 @@ export default function Layout({ children }) {
   const [clientAppointments, setClientAppointments] = useState([]);
   const [clientAppointmentsLoading, setClientAppointmentsLoading] = useState(false);
   const [seenClientReminderIds, setSeenClientReminderIds] = useState([]);
+  const [clientNotifications, setClientNotifications] = useState([]);
+  const [currentEstablishmentId, setCurrentEstablishmentId] = useState(null);
   const [nowTick, setNowTick] = useState(Date.now());
 
   const pathSegments = location.pathname.split('/').filter(Boolean);
@@ -145,8 +147,10 @@ export default function Layout({ children }) {
         if (!active) return;
         if (!est?.id) {
           setClientAppointments([]);
+          setCurrentEstablishmentId(null);
           return;
         }
+        setCurrentEstablishmentId(est.id);
         const apps = await getMyAppointments(user.uid, est.id);
         if (!active) return;
         setClientAppointments(Array.isArray(apps) ? apps : []);
@@ -159,6 +163,28 @@ export default function Layout({ children }) {
       active = false;
     };
   }, [isClientView, user?.uid, cleanSlug]);
+
+  useEffect(() => {
+    if (!isClientView || !user?.uid || !currentEstablishmentId) return;
+
+    const q = query(
+      collection(db, 'notifications'),
+      where('user_id', '==', user.uid),
+      where('establishment_id', '==', currentEstablishmentId)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const notifs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      notifs.sort((a, b) => {
+        const dateA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+        const dateB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+        return dateB - dateA;
+      });
+      setClientNotifications(notifs);
+    });
+
+    return () => unsubscribe();
+  }, [isClientView, user?.uid, currentEstablishmentId]);
 
   useEffect(() => {
     if (!isClientView || !user?.uid) return;
@@ -201,29 +227,58 @@ export default function Layout({ children }) {
       })
       .filter(Boolean);
 
-    reminders.sort((a, b) => {
+    const combined = [...reminders, ...clientNotifications];
+
+    // Ordena por data (mais recentes primeiro)
+    // Prioriza notificações não lidas se as datas forem muito próximas
+    combined.sort((a, b) => {
       const dateA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
       const dateB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+      
+      if (Math.abs(dateA - dateB) < 1000) { // Se for no mesmo segundo
+        if (!a.read && b.read) return -1;
+        if (a.read && !b.read) return 1;
+      }
+      
       return dateB - dateA;
     });
 
-    return reminders.slice(0, 5);
+    return combined.slice(0, 15); // Aumentado para 15 para garantir visibilidade
   })();
 
-  const hasClientReminders = clientReminderNotifications.length > 0;
+  const unreadClientNotificationsCount = clientReminderNotifications.filter(n => !n.read).length;
+  const hasClientReminders = unreadClientNotificationsCount > 0;
 
-  const markClientRemindersSeen = () => {
-    if (!user?.uid || !cleanSlug) return;
-    if (clientReminderNotifications.length === 0) return;
-    const ids = clientReminderNotifications.map((n) => n.id);
-    setSeenClientReminderIds((prev) => {
-      const next = Array.from(new Set([...(prev || []), ...ids]));
+  const markClientRemindersSeen = async () => {
+    // 1. Marca lembretes automáticos como vistos localmente
+    const autoIds = clientReminderNotifications
+      .filter(n => n.id.startsWith('auto-'))
+      .map(n => n.id);
+    
+    if (autoIds.length > 0) {
+      setSeenClientReminderIds(prev => {
+        const next = [...new Set([...(prev || []), ...autoIds])];
+        if (user?.uid && cleanSlug) {
+          try {
+            localStorage.setItem(`seen_client_reminders_${user.uid}_${cleanSlug}`, JSON.stringify(next));
+          } catch (e) {}
+        }
+        return next;
+      });
+    }
+
+    // 2. Marca notificações do banco como lidas (apenas as que ainda não foram lidas)
+    const unreadDbNotifs = clientNotifications.filter(n => !n.read);
+    if (unreadDbNotifs.length > 0) {
       try {
-        localStorage.setItem(`seen_client_reminders_${user.uid}_${cleanSlug}`, JSON.stringify(next));
-      } catch {
+        const promises = unreadDbNotifs.map(n => 
+          updateDoc(doc(db, 'notifications', n.id), { read: true })
+        );
+        await Promise.all(promises);
+      } catch (err) {
+        console.error("Erro ao marcar notificações como lidas:", err);
       }
-      return next;
-    });
+    }
   };
 
   return (
@@ -294,7 +349,9 @@ export default function Layout({ children }) {
                 >
                   <Bell size={18} />
                   {hasClientReminders && (
-                    <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-white animate-pulse" />
+                    <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-rose-500 text-[10px] font-black text-white border-2 border-white animate-in zoom-in duration-300">
+                      {unreadClientNotificationsCount}
+                    </span>
                   )}
                 </button>
               )}
@@ -337,39 +394,68 @@ export default function Layout({ children }) {
             className="absolute inset-0 bg-slate-950/35 backdrop-blur-sm"
             onClick={() => setClientNotificationsOpen(false)}
           />
-          <div className="absolute right-4 top-20 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-[2rem] border-2 border-slate-950 bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/60 px-5 py-4">
+          <div className="absolute right-4 top-20 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-[2.5rem] border-2 border-slate-950 bg-white shadow-2xl animate-in slide-in-from-top-4 duration-300">
+            <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/60 px-6 py-5">
               <div className="min-w-0">
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-pink-600">Lembretes</p>
-                <p className="mt-1 text-sm font-black text-slate-900 truncate">Seu app Musa Agenda</p>
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-pink-600">Notificações</p>
+                <p className="mt-1 text-sm font-black text-slate-900 truncate">
+                  {unreadClientNotificationsCount > 0 
+                    ? `${unreadClientNotificationsCount} novas mensagens` 
+                    : 'Suas notificações'}
+                </p>
               </div>
               <button
                 type="button"
                 onClick={() => setClientNotificationsOpen(false)}
-                className="h-10 w-10 rounded-2xl border border-slate-100 bg-white text-slate-500 hover:bg-slate-50"
+                className="h-10 w-10 flex items-center justify-center rounded-2xl border border-slate-100 bg-white text-slate-500 hover:bg-slate-50 transition-colors"
               >
-                ✕
+                <X size={18} strokeWidth={3} />
               </button>
             </div>
-            <div className="max-h-[60vh] overflow-y-auto px-5 py-4">
+            <div className="max-h-[60vh] overflow-y-auto px-6 py-6 no-scrollbar">
               {clientAppointmentsLoading ? (
-                <p className="py-10 text-center text-sm font-bold text-slate-400">Carregando lembretes...</p>
+                <div className="py-12 text-center">
+                  <div className="w-8 h-8 border-4 border-pink-100 border-t-pink-500 rounded-full animate-spin mx-auto mb-4" />
+                  <p className="text-sm font-bold text-slate-400">Carregando...</p>
+                </div>
               ) : clientReminderNotifications.length === 0 ? (
-                <div className="py-10 text-center">
-                  <p className="text-sm font-bold text-slate-500">Nenhum lembrete agora.</p>
-                  <p className="mt-2 text-xs font-medium text-slate-400">
-                    Os avisos aparecem até 2 horas antes do seu horário.
+                <div className="py-12 text-center">
+                  <div className="w-16 h-16 bg-slate-50 rounded-[2rem] flex items-center justify-center mx-auto mb-4 text-slate-300">
+                    <Bell size={32} />
+                  </div>
+                  <p className="text-sm font-bold text-slate-500">Nenhuma notificação</p>
+                  <p className="mt-2 text-xs font-medium text-slate-400 max-w-[200px] mx-auto leading-relaxed">
+                    Avisos de agendamentos e lembretes aparecerão aqui.
                   </p>
                 </div>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-4">
                   {clientReminderNotifications.map((notif) => (
-                    <div key={notif.id} className="rounded-2xl border border-pink-100 bg-pink-50/20 p-4">
-                      <p className="text-xs font-black text-slate-900">{notif.title}</p>
-                      <p className="mt-1 text-sm font-medium text-slate-600">{notif.message}</p>
-                      <p className="mt-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
-                        {notif.createdAt?.toDate ? format(notif.createdAt.toDate(), "HH:mm '·' dd/MM", { locale: ptBR }) : 'Agora'}
-                      </p>
+                    <div 
+                      key={notif.id} 
+                      className={`relative rounded-3xl p-5 transition-all border-2 ${
+                        !notif.read 
+                          ? 'bg-pink-50/40 border-pink-100 shadow-sm' 
+                          : 'bg-white border-slate-50 opacity-75'
+                      }`}
+                    >
+                      {!notif.read && (
+                        <span className="absolute top-5 right-5 w-2.5 h-2.5 bg-pink-500 rounded-full" />
+                      )}
+                      <div className="pr-6">
+                        <p className="text-xs font-black text-slate-900 uppercase tracking-tight leading-tight">
+                          {notif.title}
+                        </p>
+                        <p className="mt-2 text-sm font-medium text-slate-600 leading-relaxed">
+                          {notif.message}
+                        </p>
+                        <div className="mt-4 flex items-center gap-2">
+                          <div className="w-1 h-1 rounded-full bg-slate-300" />
+                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                            {notif.createdAt?.toDate ? format(notif.createdAt.toDate(), "HH:mm '·' dd/MM", { locale: ptBR }) : 'Agora'}
+                          </p>
+                        </div>
+                      </div>
                     </div>
                   ))}
                 </div>

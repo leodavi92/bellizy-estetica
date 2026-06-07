@@ -19,14 +19,7 @@ export default function SimpleLayout({
 }) {
   const description = settings?.bioText || 'Atendimento profissional de excelência.';
   
-  const displayServices = realServices && realServices.length > 0
-    ? realServices
-    : [
-        { id: '1', nome: 'Limpeza de Pele', preco: 120 },
-        { id: '2', nome: 'Design de Sobrancelhas', preco: 50 },
-        { id: '3', nome: 'Depilação a Laser', preco: 250 },
-        { id: '4', nome: 'Massagens Relaxantes', preco: 180 }
-      ];
+  const displayServices = realServices && realServices.length > 0 ? realServices : [];
 
   const formatPrice = (price) =>
     new Intl.NumberFormat('pt-BR', {
@@ -111,29 +104,40 @@ export default function SimpleLayout({
           </div>
         </section>
 
-        {/* 2. Lista de Serviços (Simples) */}
-        <section className="px-8 py-6 space-y-6">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-black uppercase tracking-tight">Serviços</h2>
-            <div className="h-px flex-1 bg-slate-100 ml-4" />
-          </div>
+        {/* 2. Serviços em Destaque - Só aparece se houver serviços */}
+        {displayServices.length > 0 && (
+          <section className="px-8 pb-12 space-y-6">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-black tracking-tight">Serviços em Destaque</h3>
+              <div className={`h-1 w-12 rounded-full ${palette.primary}`} />
+            </div>
 
-          <div className="space-y-3">
-            {displayServices.map((service, idx) => (
-              <button 
-                key={service.id || idx}
-                onClick={() => onBookClick(service.id)}
-                className="w-full flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 group transition-all hover:bg-white hover:border-pink-200 text-left"
-              >
-                <div className="flex flex-col gap-0.5">
-                  <span className="font-bold text-sm text-slate-700">{service.nome}</span>
-                  <span className="text-xs font-black text-emerald-600">{formatPrice(service.preco)}</span>
-                </div>
-                <ChevronRight size={16} className="text-slate-300 group-hover:text-pink-500 transition-colors" />
-              </button>
-            ))}
-          </div>
-        </section>
+            <div className="grid gap-4">
+              {displayServices.map((service, idx) => (
+                <motion.div
+                  key={service.id || idx}
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: idx * 0.1 }}
+                  onClick={() => onBookClick(service.id)}
+                  className="group cursor-pointer flex items-center justify-between p-5 rounded-[1.75rem] bg-slate-50 border border-slate-100 hover:border-pink-200 hover:bg-white transition-all shadow-sm hover:shadow-md"
+                >
+                  <div className="flex flex-col gap-0.5">
+                    <span className="font-bold text-slate-800 group-hover:text-pink-600 transition-colors">
+                      {service.nome}
+                    </span>
+                    <span className="text-sm font-black text-pink-500/80">
+                      {formatPrice(service.preco)}
+                    </span>
+                  </div>
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center bg-white border border-slate-100 text-slate-400 group-hover:${palette.primary} group-hover:text-white transition-all`}>
+                    <ChevronRight size={16} />
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* 4. Rodapé de Contato */}
         <section className="px-8 pb-12 pt-4 space-y-8">

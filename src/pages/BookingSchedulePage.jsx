@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { collection, getDocs, query, where } from 'firebase/firestore';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
+import { collection, getDocs, query, where, doc, getDoc } from 'firebase/firestore';
 import { addMinutes, format, isAfter, isSameDay, startOfDay } from 'date-fns';
 import { enUS } from 'date-fns/locale';
 import { CheckCircle2, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../services/firebase';
-import { createAppointment, getAvailableSlots, getServices } from '../services/appointmentService';
+import { createAppointment, getAvailableSlots, getMultiProfessionalAvailableSlots, getServices } from '../services/appointmentService';
 import { getEstablishmentBySlug } from '../services/establishmentService';
 import ScheduleSection from '../components/client/ScheduleSection';
 
@@ -15,17 +15,35 @@ export default function BookingSchedulePage() {
   const { user } = useAuth();
   const { slug, serviceId } = useParams(); // serviceId aqui pode ser uma lista separada por vírgula
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [establishment, setEstablishment] = useState(null);
   const [services, setServices] = useState([]);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [availableSlots, setAvailableSlots] = useState([]);
-  const [allAdminAppointments, setAllAdminAppointments] = useState([]);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [loading, setLoading] = useState(true);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [bookingSuccess, setBookingSuccess] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [professional, setProfessional] = useState(null);
+
+  // Pega o ID do profissional da URL (fallback para agendamentos simples)
+  const professionalId = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return params.get('professionalId');
+  }, [location.search]);
+
+  // Pega as atribuições de profissionais (serviceId:professionalId) da URL
+  const assignments = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const raw = params.get('assignments');
+    if (!raw) return [];
+    return raw.split(',').map(pair => {
+      const [sId, pId] = pair.split(':');
+      return { serviceId: sId, professionalId: pId };
+    });
+  }, [location.search]);
 
   // Parse múltiplo de serviços
   const selectedServices = useMemo(() => {
@@ -33,6 +51,25 @@ export default function BookingSchedulePage() {
     const ids = serviceId.split(',');
     return services.filter(s => ids.includes(s.id));
   }, [services, serviceId]);
+
+  // Associa o objeto de serviço completo com o profissional atribuído e ordena por PRIORIDADE
+  const serviceAssignments = useMemo(() => {
+    if (selectedServices.length === 0 || assignments.length === 0) return [];
+    const unsorted = selectedServices.map(service => {
+      const found = assignments.find(a => a.serviceId === service.id);
+      return {
+        service,
+        professionalId: found ? found.professionalId : 'owner'
+      };
+    });
+
+    // Ordenar por prioridade (Maior primeiro)
+    return unsorted.sort((a, b) => {
+      const prioA = a.service?.prioridade || 0;
+      const prioB = b.service?.prioridade || 0;
+      return prioB - prioA;
+    });
+  }, [selectedServices, assignments]);
 
   const totalDuration = useMemo(() => {
     return selectedServices.reduce((acc, s) => acc + Number(s.duracao || 0), 0);
@@ -63,22 +100,23 @@ export default function BookingSchedulePage() {
 
         setEstablishment(estData);
 
+        // Busca dados do profissional se houver um ID
+        if (professionalId && professionalId !== 'owner') {
+          const profDoc = await getDoc(doc(db, "professionals", professionalId));
+          if (profDoc.exists()) {
+            setProfessional({ id: profDoc.id, ...profDoc.data() });
+          }
+        } else if (professionalId === 'owner') {
+          setProfessional({
+            id: 'owner',
+            nome: estData.nome || 'Profissional Principal',
+            cargo: 'Especialista Principal',
+            isOwner: true
+          });
+        }
+
         const servicesData = await getServices(estData.id);
         setServices(servicesData);
-
-        const q = query(
-          collection(db, 'appointments'),
-          where('establishment_id', '==', estData.id),
-          where('status', '==', 'ativo')
-        );
-        const snap = await getDocs(q);
-        setAllAdminAppointments(snap.docs.map((item) => {
-          const data = item.data();
-          // Normalizar para facilitar verificação de disponibilidade
-          const start = data.start_time ? data.start_time.toDate() : data.data_hora.toDate();
-          const end = data.end_time ? data.end_time.toDate() : addMinutes(start, data.duration || 30);
-          return { id: item.id, ...data, start, end };
-        }));
       } catch (error) {
         console.error('Erro ao carregar horarios:', error);
       } finally {
@@ -87,7 +125,7 @@ export default function BookingSchedulePage() {
     }
 
     loadInitialData();
-  }, [slug, serviceId]);
+  }, [slug, serviceId, professionalId]);
 
   useEffect(() => {
     if (selectedServices.length === 0 || !establishment) return;
@@ -95,7 +133,16 @@ export default function BookingSchedulePage() {
     async function loadSlots() {
       setLoadingSlots(true);
       try {
-        const slots = await getAvailableSlots(selectedDate, totalDuration, establishment.id);
+        let slots = [];
+        if (serviceAssignments.length > 0) {
+          // Novo cálculo multi-profissional
+          slots = await getMultiProfessionalAvailableSlots(selectedDate, serviceAssignments, establishment.id);
+        } else {
+          // Fallback para agendamento simples (compatibilidade)
+          const params = new URLSearchParams(location.search);
+          const singleProfId = params.get('professionalId');
+          slots = await getAvailableSlots(selectedDate, totalDuration, establishment.id, singleProfId);
+        }
         setAvailableSlots(slots);
       } catch (error) {
         console.error(error);
@@ -105,7 +152,7 @@ export default function BookingSchedulePage() {
     }
 
     loadSlots();
-  }, [selectedDate, totalDuration, establishment, selectedServices]);
+  }, [selectedDate, totalDuration, establishment, selectedServices, serviceAssignments, location.search]);
 
   const checkDayAvailability = (date) => {
     if (!establishment || selectedServices.length === 0) return false;
@@ -143,13 +190,18 @@ export default function BookingSchedulePage() {
       return;
     }
 
-    // Em vez de confirmar e salvar aqui, redirecionamos para a página de confirmação profissional
+    const params = new URLSearchParams(location.search);
+    const assignmentsParam = params.get('assignments');
+
+    // Redirecionamos para a página de confirmação profissional
     navigate(`/${slug}/agendar/confirmacao`, {
       state: {
-        selectedServicesIds: serviceId, // O serviceId aqui já pode conter os IDs separados por vírgula
+        selectedServicesIds: serviceId,
         selectedDateStr: slot.toISOString(),
         totalDuration,
-        totalPrice
+        totalPrice,
+        assignments: assignmentsParam, // Passa as atribuições para a próxima tela
+        professionalId: params.get('professionalId') // Compatibilidade
       }
     });
   }

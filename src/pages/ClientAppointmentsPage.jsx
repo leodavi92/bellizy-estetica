@@ -13,7 +13,8 @@ import {
   CalendarDays,
   CreditCard,
   AlertCircle,
-  RefreshCw
+  RefreshCw,
+  User
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { cancelAppointment, getMyAppointments } from '../services/appointmentService';
@@ -149,14 +150,18 @@ export default function ClientAppointmentsPage() {
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-pink-50 text-pink-600">
                 <CalendarDays size={16} />
               </div>
-              <span className="text-xs font-bold text-slate-500">Cancelamentos até 24h antes</span>
+              <span className="text-xs font-bold text-slate-500">
+                Cancelamentos até {establishment?.settings?.min_cancel_hours || 2}h antes
+              </span>
             </div>
 
             <div className="flex items-center gap-2.5">
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50 text-amber-600">
                 <Clock3 size={16} />
               </div>
-              <span className="text-xs font-bold text-slate-500">Tolerância de 5 minutos</span>
+              <span className="text-xs font-bold text-slate-500">
+                Tolerância de {establishment?.settings?.delay_tolerance || 5} minutos
+              </span>
             </div>
           </div>
         </div>
@@ -192,21 +197,34 @@ export default function ClientAppointmentsPage() {
                       className="flex cursor-pointer items-center justify-between p-5 sm:p-6"
                     >
                       <div className="flex-1">
-                        <div className={`inline-flex rounded-full px-3 py-1 text-[9px] font-black uppercase tracking-wider ${
-                          isActive ? 'bg-emerald-100 text-emerald-700' : 
-                          isCompleted ? 'bg-blue-100 text-blue-700' :
-                          'bg-red-100 text-red-700'
-                        }`}>
-                          {isActive ? 'Confirmado' : 
-                           isCompleted ? 'Finalizado' : 
-                           'Cancelado'}
+                        <div className="flex items-start justify-between mb-2">
+                          <h3 className="text-base font-black text-slate-900 leading-tight uppercase tracking-tight">
+                            {app.services?.length > 0 
+                              ? app.services.map(s => s.nome || s.name || s.service_nome).join(' + ')
+                              : app.service_nome || 'Serviço'}
+                          </h3>
                         </div>
-                        <h3 className="mt-3 text-base font-black text-slate-900 leading-tight">
-                          {app.services?.length > 0 
-                            ? app.services.map(s => s.nome || s.name).join(' + ')
-                            : app.service_nome}
-                        </h3>
-                        <div className="mt-2 flex items-center gap-4 text-xs font-bold text-slate-400">
+
+                        <div className="flex flex-wrap items-center gap-2 mb-3">
+                          <div className={`inline-flex rounded-full px-3 py-1 text-[9px] font-black uppercase tracking-wider ${
+                            isActive ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : 
+                            isCompleted ? 'bg-blue-100 text-blue-700 border border-blue-200' :
+                            'bg-red-100 text-red-700 border border-red-200'
+                          }`}>
+                            {isActive ? 'Confirmado' : 
+                             isCompleted ? 'Finalizado' : 
+                             'Cancelado'}
+                          </div>
+
+                          <div className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 rounded-full border border-slate-200">
+                            <User size={10} className="text-slate-500" />
+                            <span className="text-[9px] font-black text-slate-600 uppercase tracking-widest">
+                              {app.professional_nome || 'Profissional'}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-4 text-xs font-bold text-slate-400">
                           <span className="flex items-center gap-1.5">
                             <CalendarDays size={14} className="text-pink-500" />
                             {format(appDate, "dd/MM 'às' HH:mm")}
@@ -229,14 +247,57 @@ export default function ClientAppointmentsPage() {
                       <div className="border-t border-slate-50 bg-slate-50/30 p-6 animate-in slide-in-from-top-2 duration-300">
                         <div className="grid gap-6 sm:grid-cols-2">
                           <div className="space-y-4">
-                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Detalhes dos Serviços</p>
-                            <div className="space-y-3">
-                              {(app.services || [{ nome: app.service_nome, preco: app.preco, duracao: app.duration }]).map((s, i) => (
-                                <div key={i} className="flex justify-between items-center text-sm font-bold">
-                                  <span className="text-slate-600">{s.nome || s.name}</span>
-                                  <span className="text-slate-900">{formatPrice(s.preco || s.price)}</span>
-                                </div>
-                              ))}
+                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Linha do Tempo do Atendimento</p>
+                            <div className="space-y-4">
+                              {(() => {
+                                let runningTime = app.data_hora?.toDate ? app.data_hora.toDate() : (app.data_hora ? new Date(app.data_hora) : new Date());
+                                const items = app.itinerary || app.services || [{ nome: app.service_nome, preco: app.preco, duracao: app.duration }];
+                                
+                                return items.map((s, i) => {
+                                  let sTime = s.start_time?.toDate ? s.start_time.toDate() : (s.start_time ? new Date(s.start_time) : null);
+                                  let eTime = s.end_time?.toDate ? s.end_time.toDate() : (s.end_time ? new Date(s.end_time) : null);
+
+                                  // Se não houver horário no serviço, usa o runningTime (sequencial)
+                                  if (!sTime) {
+                                    sTime = runningTime;
+                                  }
+                                  
+                                  if (!eTime) {
+                                    eTime = addMinutes(sTime, Number(s.duracao || s.duration || 30));
+                                  }
+
+                                  // Atualiza o runningTime para o próximo serviço na sequência
+                                  runningTime = eTime;
+
+                                  const isValidStart = sTime instanceof Date && !isNaN(sTime.getTime());
+                                  const isValidEnd = eTime instanceof Date && !isNaN(eTime.getTime());
+
+                                  return (
+                                    <div key={i} className="flex gap-3 items-start">
+                                      <div className="flex flex-col items-center">
+                                        <div className="w-12 h-12 rounded-xl bg-white border border-pink-100 flex flex-col items-center justify-center shadow-sm">
+                                          <span className="text-[9px] font-black text-pink-600 leading-none">{isValidStart ? format(sTime, 'HH:mm') : '--:--'}</span>
+                                          <div className="w-3 h-[1px] bg-pink-50 my-1" />
+                                          <span className="text-[8px] font-bold text-slate-400 leading-none">{isValidEnd ? format(eTime, 'HH:mm') : '--:--'}</span>
+                                        </div>
+                                        {i !== (items.length - 1) && (
+                                          <div className="w-0.5 h-6 bg-pink-50 mt-1" />
+                                        )}
+                                      </div>
+                                      <div className="pt-0.5">
+                                        <p className="text-sm font-black text-slate-800 uppercase tracking-tight leading-none">
+                                          {s.nome || s.service_nome}
+                                        </p>
+                                        <p className="text-[9px] font-bold text-slate-400 uppercase mt-1 flex items-center gap-1">
+                                          {s.professional_nome || app.professional_nome || 'Profissional'} 
+                                          <span className="text-pink-200 mx-1">•</span> 
+                                          {s.duracao || s.duration || app.duration} min
+                                        </p>
+                                      </div>
+                                    </div>
+                                  );
+                                });
+                              })()}
                             </div>
                             <div className="mt-4 border-t border-slate-200 pt-4 flex justify-between items-center">
                               <span className="text-sm font-black text-slate-900 uppercase tracking-tight">Valor Total</span>

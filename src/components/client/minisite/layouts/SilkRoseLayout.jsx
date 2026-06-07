@@ -33,11 +33,7 @@ export default function SilkRoseLayout({
 
   const displayServices = realServices && realServices.length > 0
     ? realServices.slice(0, 3)
-    : [
-        { id: '1', nome: 'Cuidado Facial Silk', desc: 'Pele macia como seda com ativos importados.', img: 'https://images.unsplash.com/photo-1570172619996-23b241a2f390?auto=format&fit=crop&q=80&w=400' },
-        { id: '2', nome: 'Olhar de Boneca', desc: 'Design estratégico que realça sua feminilidade.', img: 'https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?auto=format&fit=crop&q=80&w=400' },
-        { id: '3', nome: 'Spa Day Relax', desc: 'Um refúgio de paz e autocuidado completo.', img: 'https://images.unsplash.com/photo-1515377905703-c4788e51af15?auto=format&fit=crop&q=80&w=400' }
-      ];
+    : [];
 
   return (
     <div className={`relative h-full w-full flex flex-col ${roseColors.bg} rounded-[2.5rem] overflow-hidden font-['Montserrat'] text-rose-900`}>
@@ -148,31 +144,33 @@ export default function SilkRoseLayout({
           </motion.div>
         </div>
 
-        {/* 5. Delicate Services Grid */}
-        <section className="px-6 py-16 space-y-10">
-          <div className="text-center space-y-2">
-            <h2 className="text-3xl font-['Playfair_Display'] font-bold text-rose-900">Nossos Mimos</h2>
-            <div className="h-1 w-12 mx-auto bg-rose-200 rounded-full" />
-          </div>
+        {/* 5. Delicate Services Grid - Só aparece se houver serviços */}
+        {displayServices.length > 0 && (
+          <section className="px-6 py-16 space-y-10">
+            <div className="text-center space-y-2">
+              <h2 className="text-3xl font-['Playfair_Display'] font-bold text-rose-900">Nossos Mimos</h2>
+              <div className="h-1 w-12 mx-auto bg-rose-200 rounded-full" />
+            </div>
 
-          <div className="grid grid-cols-1 gap-6">
-            {displayServices.map((service, idx) => (
-              <motion.button
-                key={service.id || idx}
-                onClick={() => onBookClick(service.id)}
-                whileHover={{ y: -5 }}
-                className={`relative w-full h-56 rounded-[2.5rem] overflow-hidden border border-rose-100 group shadow-sm text-left`}
-              >
-                <img src={service.img || 'https://images.unsplash.com/photo-1570172619996-23b241a2f390?auto=format&fit=crop&q=80&w=400'} alt={service.nome} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
-                <div className="absolute inset-0 bg-gradient-to-t from-rose-900/60 via-transparent to-transparent" />
-                <div className="absolute bottom-6 left-6 right-6 space-y-1">
-                  <h3 className="text-xl font-bold text-white">{service.nome}</h3>
-                  <p className="text-[10px] text-white/80 font-medium leading-tight">{service.desc || 'Toque de seda para sua pele.'}</p>
-                </div>
-              </motion.button>
-            ))}
-          </div>
-        </section>
+            <div className="grid grid-cols-1 gap-6">
+              {displayServices.map((service, idx) => (
+                <motion.button
+                  key={service.id || idx}
+                  onClick={() => onBookClick(service.id)}
+                  whileHover={{ y: -5 }}
+                  className={`relative w-full h-56 rounded-[2.5rem] overflow-hidden border border-rose-100 group shadow-sm text-left`}
+                >
+                  <img src={service.img || 'https://images.unsplash.com/photo-1570172619996-23b241a2f390?auto=format&fit=crop&q=80&w=400'} alt={service.nome} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-rose-900/60 via-transparent to-transparent" />
+                  <div className="absolute bottom-6 left-6 right-6 space-y-1">
+                    <h3 className="text-xl font-bold text-white">{service.nome}</h3>
+                    <p className="text-[10px] text-white/80 font-medium leading-tight">{service.desc || 'Toque de seda para sua pele.'}</p>
+                  </div>
+                </motion.button>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* 6. Footer - Sweet Contact */}
         <section className="p-8 space-y-12">

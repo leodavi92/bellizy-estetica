@@ -13,6 +13,7 @@ import {
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { APPOINTMENT_STATUS, normalizeStatus } from '../../../services/appointmentService';
 
 const AppointmentCalendar = ({ appointments, selectedDate, onDateSelect }) => {
   const [viewDate, setViewDate] = React.useState(selectedDate || new Date());
@@ -37,15 +38,14 @@ const AppointmentCalendar = ({ appointments, selectedDate, onDateSelect }) => {
   };
 
   const getStatusColor = (status) => {
-    switch (status) {
-      case 'completed':
+    const normalized = normalizeStatus(status);
+    switch (normalized) {
+      case APPOINTMENT_STATUS.COMPLETED:
         return 'bg-blue-500';
-      case 'cancelled':
-      case 'cancelado':
+      case APPOINTMENT_STATUS.CANCELLED:
         return 'bg-red-500';
-      case 'scheduled':
-      case 'ativo':
-      case 'confirmado':
+      case APPOINTMENT_STATUS.SCHEDULED:
+      case APPOINTMENT_STATUS.CONFIRMED:
         return 'bg-pink-500';
       default:
         return 'bg-gray-400';
@@ -124,8 +124,11 @@ const AppointmentCalendar = ({ appointments, selectedDate, onDateSelect }) => {
                 {dayAppointments.length > 0 && (
                   <div 
                     className={`w-2.5 h-2.5 rounded-full shadow-sm ${
-                      dayAppointments.some(app => ['scheduled', 'ativo', 'confirmado'].includes(app.status)) ? 'bg-pink-500' :
-                      dayAppointments.some(app => app.status === 'completed') ? 'bg-blue-500' :
+                      dayAppointments.some(app => {
+                        const s = normalizeStatus(app.status);
+                        return s === APPOINTMENT_STATUS.SCHEDULED || s === APPOINTMENT_STATUS.CONFIRMED;
+                      }) ? 'bg-pink-500' :
+                      dayAppointments.some(app => normalizeStatus(app.status) === APPOINTMENT_STATUS.COMPLETED) ? 'bg-blue-500' :
                       'bg-red-500'
                     }`}
                   />

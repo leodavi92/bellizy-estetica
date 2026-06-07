@@ -1,37 +1,47 @@
 import React from 'react';
-import { 
-  TrendingUp, 
-  Calendar, 
-  DollarSign, 
-  Clock, 
-  Plus, 
-  Settings, 
-  LogOut, 
+import {
+  TrendingUp,
+  Calendar,
+  DollarSign,
+  Clock,
+  Plus,
+  Settings,
+  LogOut,
   Users,
   Sparkles,
   Instagram,
   CreditCard,
   Store,
-  Lock
+  Lock,
+  ClipboardList,
+  Bell
 } from 'lucide-react';
 
-const SidebarContent = ({ view, setView, logout, establishment, profileInfo, menuItems: propMenuItems }) => {
+const SidebarContent = ({ view, setView, logout, establishment, profileInfo, menuItems: propMenuItems, userRole }) => {
   const userPlan = establishment?.plan || establishment?.subscription?.plan || 'bronze';
+  const isSubscriptionView = view === 'assinatura' || view === 'planos_assinatura';
 
   const defaultMenuItems = [
-    { id: 'overview', label: 'Dashboard', icon: TrendingUp },
+    { id: 'overview', label: 'Início', icon: TrendingUp },
     { id: 'agenda', label: 'Agenda', icon: Calendar },
-    { id: 'clientes', label: 'Clientes', icon: Users },
-    { id: 'servicos', label: 'Serviços', icon: Plus },
-    { id: 'equipe', label: 'Equipe', icon: Users, restricted: userPlan !== 'gold' },
-    { id: 'horarios', label: 'Horários', icon: Clock },
-    { id: 'minisite', label: 'Site', icon: Store },
-    { id: 'financas', label: 'Finanças', icon: DollarSign, restricted: userPlan === 'bronze' },
-    { id: 'assinatura', label: 'Assinatura', icon: CreditCard },
-    { id: 'config', label: 'Configurações', icon: Settings }
+    { id: 'comissoes', label: 'Comissões', icon: DollarSign, hideForAdmin: true },
+    { id: 'clientes', label: 'Clientes', icon: Users, hideForStaff: true },
+    { id: 'servicos', label: 'Serviços', icon: Plus, hideForStaff: true },
+    { id: 'horarios', label: 'Horários', icon: Clock, hideForStaff: true },
+    { id: 'lembretes', label: 'Lembretes', icon: Bell },
+    { id: 'minisite', label: 'Site', icon: Store, hideForStaff: true },
+    { id: 'anamnese', label: 'Fichas', icon: ClipboardList },
+    { id: 'equipe', label: 'Equipe', icon: Users, restricted: false, hideForStaff: true },
+    { id: 'financas', label: 'Finanças', icon: DollarSign, restricted: false, hideForStaff: true },
+    { id: 'config', label: 'Configurações', icon: Settings },
+    { id: 'assinatura', label: 'Assinatura', icon: CreditCard, hideForStaff: true }
   ];
 
-  const menuItems = propMenuItems || defaultMenuItems;
+  const menuItems = (propMenuItems || defaultMenuItems).filter(item => {
+    if (userRole === 'staff' && item.hideForStaff) return false;
+    if (userRole === 'admin' && item.hideForAdmin) return false;
+    return true;
+  });
 
   return (
     <div className="flex flex-col h-full bg-white border-r border-pink-100">
@@ -66,7 +76,7 @@ const SidebarContent = ({ view, setView, logout, establishment, profileInfo, men
             key={item.id}
             onClick={() => setView(item.id)}
             className={`w-full flex items-center justify-between px-4 py-3.5 rounded-2xl font-bold transition-all ${
-              view === item.id 
+              (item.id === 'assinatura' ? isSubscriptionView : view === item.id)
                 ? 'bg-pink-600 text-white shadow-lg shadow-pink-100 scale-[1.02]' 
                 : 'text-gray-500 hover:bg-pink-50 hover:text-pink-600'
             }`}
@@ -76,7 +86,7 @@ const SidebarContent = ({ view, setView, logout, establishment, profileInfo, men
               <span className="text-sm">{item.label}</span>
             </div>
             {item.restricted && (
-              <Lock size={14} className={view === item.id ? 'text-white/70' : 'text-gray-300'} />
+              <Lock size={14} className={(item.id === 'assinatura' ? isSubscriptionView : view === item.id) ? 'text-white/70' : 'text-gray-300'} />
             )}
           </button>
         ))}

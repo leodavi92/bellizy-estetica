@@ -138,20 +138,6 @@ export const LAYOUTS = {
     description: 'Visual contemporâneo e dinâmico.',
     plan: 'silver'
   },
-  luxury: {
-    id: 'luxury',
-    name: 'Luxury',
-    component: LuxuryLayout,
-    description: 'O ápice do luxo e exclusividade.',
-    plan: 'silver'
-  },
-  premium_balance: {
-    id: 'premium_balance',
-    name: 'Premium Balance',
-    component: PremiumBalanceLayout,
-    description: 'O equilíbrio perfeito entre o moderno e o luxo.',
-    plan: 'silver'
-  },
   aura: {
     id: 'aura',
     name: 'Aura High-End',
@@ -159,12 +145,26 @@ export const LAYOUTS = {
     description: 'Design One Page sofisticado para clínicas de alto padrão.',
     plan: 'silver'
   },
+  luxury: {
+    id: 'luxury',
+    name: 'Luxury',
+    component: LuxuryLayout,
+    description: 'O ápice do luxo e exclusividade.',
+    plan: 'gold'
+  },
+  premium_balance: {
+    id: 'premium_balance',
+    name: 'Premium Balance',
+    component: PremiumBalanceLayout,
+    description: 'O equilíbrio perfeito entre o moderno e o luxo.',
+    plan: 'gold'
+  },
   silk_rose: {
     id: 'silk_rose',
     name: 'Silk Rose (Ultra Feminino)',
     component: SilkRoseLayout,
     description: 'Design delicado com texturas de seda e estética romântica.',
-    plan: 'silver'
+    plan: 'gold'
   }
 };
 
@@ -173,6 +173,5 @@ export const DEFAULT_SETTINGS = {
   paletteId: 'rose_gold',
   bannerUrl: '',
   bioText: 'Realçando sua beleza natural ✨',
-  showDescription: true,
-  identityMode: 'corporative' // 'corporative' (Salon Name + Logo) or 'personal' (Prof. Name + Photo)
+  showDescription: true
 };

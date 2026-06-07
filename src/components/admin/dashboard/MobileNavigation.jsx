@@ -12,7 +12,8 @@ import {
   Users,
   Plus,
   Clock,
-  CreditCard
+  CreditCard,
+  ClipboardList
 } from 'lucide-react';
 
 export const MobileTopbar = ({ onMenuClick, title, onNotificationsClick, hasUnreadNotifications }) => (
@@ -42,15 +43,19 @@ export const MobileTopbar = ({ onMenuClick, title, onNotificationsClick, hasUnre
 );
 
 const menuItems = [
-  { id: 'overview', label: 'Dashboard', icon: TrendingUp },
+  { id: 'overview', label: 'Início', icon: TrendingUp },
   { id: 'agenda', label: 'Agenda', icon: Calendar },
-  { id: 'clientes', label: 'Clientes', icon: Users },
-  { id: 'servicos', label: 'Serviços', icon: Plus },
-  { id: 'horarios', label: 'Horários', icon: Clock },
-  { id: 'minisite', label: 'Site', icon: Store },
-  { id: 'financas', label: 'Finanças', icon: DollarSign },
-  { id: 'assinatura', label: 'Assinatura', icon: CreditCard },
-  { id: 'config', label: 'Configurações', icon: Settings }
+  { id: 'comissoes', label: 'Comissões', icon: DollarSign, hideForAdmin: true },
+  { id: 'clientes', label: 'Clientes', icon: Users, hideForStaff: true },
+  { id: 'servicos', label: 'Serviços', icon: Plus, hideForStaff: true },
+  { id: 'horarios', label: 'Horários', icon: Clock, hideForStaff: true },
+  { id: 'lembretes', label: 'Lembretes', icon: Bell },
+  { id: 'minisite', label: 'Site', icon: Store, hideForStaff: true },
+  { id: 'anamnese', label: 'Fichas', icon: ClipboardList },
+  { id: 'equipe', label: 'Equipe', icon: Users, hideForStaff: true },
+  { id: 'financas', label: 'Finanças', icon: DollarSign, hideForStaff: true },
+  { id: 'config', label: 'Configurações', icon: Settings },
+  { id: 'assinatura', label: 'Assinatura', icon: CreditCard, hideForStaff: true }
 ];
 
 export const MobileDrawer = ({ isOpen, onClose, ...sidebarProps }) => (

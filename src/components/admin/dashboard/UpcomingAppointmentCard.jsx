@@ -41,10 +41,20 @@ const UpcomingAppointmentCard = ({ appointment, onClick }) => {
               <h4 className="font-bold text-gray-900 text-lg group-hover:text-pink-600 transition-colors">
                 {appointment.user_nome}
               </h4>
-              <p className="text-xs text-gray-500 flex items-center gap-1">
-                <Sparkles size={12} className="text-pink-400" /> 
-                {appointment.service_nome || (appointment.services && appointment.services.map(s => s.nome).join(' + '))}
-              </p>
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <p className="text-xs text-gray-500 flex items-center gap-1">
+                  <Sparkles size={12} className="text-pink-400" /> 
+                  {appointment.service_nome || (appointment.services && appointment.services.map(s => s.nome).join(' + '))}
+                </p>
+                {appointment.professional_nome && (
+                  <>
+                    <span className="text-gray-300 text-xs">•</span>
+                    <p className="text-[10px] font-black text-pink-600 uppercase tracking-tighter bg-pink-50 px-2 py-0.5 rounded-md">
+                      {appointment.professional_nome}
+                    </p>
+                  </>
+                )}
+              </div>
             </div>
           </div>
           <div className="bg-pink-50 text-pink-600 p-2 rounded-xl group-hover:bg-pink-600 group-hover:text-white transition-all">
