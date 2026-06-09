@@ -18,7 +18,7 @@ export default defineConfig({
         short_name: 'Musa Agenda',
         description: 'Agendamento Online de Estética e Beleza',
         theme_color: '#db2777',
-        background_color: '#ffffff',
+        background_color: '#fdf2f8',
         display: 'standalone',
         icons: [
           {

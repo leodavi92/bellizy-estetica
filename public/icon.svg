@@ -1,9 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
   <defs>
     <linearGradient id="pinkGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#ec4899;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#be123c;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#db2777;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#e11d48;stop-opacity:1" />
     </linearGradient>
   </defs>
-  <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" fill="url(#pinkGradient)" stroke="url(#pinkGradient)"/>
+  <!-- Estrela Principal (Sparkles) -->
+  <path d="M9.937 15.5L12 10.5L14.063 15.5L19 17.5L14.063 19.5L12 24.5L9.937 19.5L5 17.5L9.937 15.5Z" fill="url(#pinkGradient)" stroke="url(#pinkGradient)"/>
+  <!-- Pontinho 1 -->
+  <path d="M5 3L6 5.5L8.5 6.5L6 7.5L5 10L4 7.5L1.5 6.5L4 5.5L5 3Z" fill="url(#pinkGradient)" stroke="url(#pinkGradient)"/>
+  <!-- Pontinho 2 -->
+  <path d="M17 5L18 7.5L20.5 8.5L18 9.5L17 12L16 9.5L13.5 8.5L16 7.5L17 5Z" fill="url(#pinkGradient)" stroke="url(#pinkGradient)"/>
 </svg>
