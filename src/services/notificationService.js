@@ -61,20 +61,31 @@ export const createInternalNotification = async (establishmentId, appointmentDat
   try {
     const start = appointmentData.data_hora?.toDate ? appointmentData.data_hora.toDate() : new Date(appointmentData.data_hora);
     
-    // Busca o owner_id do estabelecimento se o professional_id for 'owner'
-    let targetProfessionalId = appointmentData.professional_id || 'owner';
+    // Normaliza o professional_id para evitar strings 'null' ou valores nulos
+    let targetProfessionalId = appointmentData.professional_id;
     
-    console.log("[NotificationService] Criando notificação interna para:", targetProfessionalId);
-    console.log("[NotificationService] Dados do agendamento:", appointmentData);
+    // Se for nulo, string 'null', vazio ou 'owner', precisamos resolver para o UID real do dono
+    const isInvalidId = !targetProfessionalId || 
+                        targetProfessionalId === 'null' || 
+                        targetProfessionalId === 'undefined' || 
+                        targetProfessionalId === 'owner';
 
-    if (targetProfessionalId === 'owner') {
+    console.log("[NotificationService] ID recebido:", targetProfessionalId, "Inválido?", isInvalidId);
+
+    if (isInvalidId) {
+      console.log("[NotificationService] Buscando UID real do administrador para o estabelecimento:", establishmentId);
       const estRef = doc(db, 'establishments', establishmentId);
       const estSnap = await getDoc(estRef);
       if (estSnap.exists()) {
         const estData = estSnap.data();
-        targetProfessionalId = estData.owner_id || estData.user_id || 'owner';
-        console.log("[NotificationService] 'owner' convertido para UID real:", targetProfessionalId);
+        targetProfessionalId = estData.owner_id || estData.user_id;
+        console.log("[NotificationService] Resolvido para UID real:", targetProfessionalId);
       }
+    }
+
+    if (!targetProfessionalId || targetProfessionalId === 'null') {
+      console.error("[NotificationService] Não foi possível resolver um UID válido para o envio.");
+      return;
     }
 
     const notificationData = {
@@ -88,9 +99,8 @@ export const createInternalNotification = async (establishmentId, appointmentDat
       createdAt: Timestamp.now()
     };
 
-    console.log("[NotificationService] Salvando no Firestore:", notificationData);
     await addDoc(collection(db, "notifications"), notificationData);
-    console.log("[NotificationService] Documento de notificação criado com sucesso.");
+    console.log("[NotificationService] Notificação real criada para o UID:", targetProfessionalId);
   } catch (err) {
     console.error("Erro ao criar notificação interna:", err);
   }
