@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" fill="none">
+  <!-- Premium Squircle Background (iOS Style) -->
+  <rect width="1024" height="1024" rx="220" fill="#db2777"/>
+  
+  <!-- Estrela Central com Abertura Moderada (Equilíbrio entre magra e cheia) -->
+  <!-- M 512 240 (Topo)
+       C 512 450 450 512 280 512 (Curva para Esquerda)
+       C 450 512 512 574 512 784 (Curva para Baixo)
+       C 512 574 574 512 744 512 (Curva para Direita)
+       C 574 512 512 450 512 240 (Curva para Topo) -->
+  <path d="M512 240C512 450 450 512 280 512C450 512 512 574 512 784C512 574 574 512 744 512C574 512 512 450 512 240Z" 
+    stroke="#f6d3df" 
+    stroke-width="38" 
+    stroke-linecap="round" 
+    stroke-linejoin="round"
+    fill="none"/>
+  
+  <!-- Símbolo de "+": Mantendo a proporção -->
+  <path d="M700 350V430M660 390H740" 
+    stroke="#f6d3df" 
+    stroke-width="32" 
+    stroke-linecap="round" 
+    stroke-linejoin="round"/>
+  
+  <!-- Pequeno Brilho (Estrela menor) -->
+  <path d="M330 630C330 660 325 670 305 680C325 690 330 700 330 730C330 700 335 690 355 680C335 670 330 660 330 630Z" 
+    fill="#f6d3df"/>
+    
+  <!-- Detalhe de Brilho -->
+  <circle cx="280" cy="380" r="12" fill="#f6d3df" opacity="0.6"/>
+</svg>
