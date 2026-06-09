@@ -1,5 +1,5 @@
 import { db, messaging } from './firebase';
-import { collection, addDoc, Timestamp, doc, updateDoc, arrayUnion } from 'firebase/firestore';
+import { collection, addDoc, Timestamp, doc, updateDoc, arrayUnion, getDoc } from 'firebase/firestore';
 import { getToken, onMessage } from 'firebase/messaging';
 import { format } from 'date-fns';
 
@@ -16,14 +16,22 @@ export const requestNotificationPermission = async (userId) => {
       });
 
       if (token && userId) {
+        console.log("Token FCM gerado:", token);
         // Salva o token no documento do usuário para envios futuros
         const userRef = doc(db, "users", userId);
-        await updateDoc(userRef, {
-          fcmTokens: arrayUnion(token),
-          pushEnabled: true,
-          updatedAt: Timestamp.now()
-        });
-        console.log("Token FCM registrado com sucesso");
+        const userSnap = await getDoc(userRef);
+        
+        if (userSnap.exists()) {
+          await updateDoc(userRef, {
+            fcmTokens: arrayUnion(token),
+            pushEnabled: true,
+            updatedAt: Timestamp.now()
+          });
+          console.log("Token FCM registrado no Firestore para o usuário:", userId);
+        } else {
+          // Se o documento na coleção 'users' não existir (raro, mas possível dependendo do fluxo de login), tenta criar ou avisar
+          console.warn("Documento do usuário não encontrado na coleção 'users'. Verifique a estrutura do banco.");
+        }
         return token;
       }
     } else {
@@ -53,9 +61,20 @@ export const createInternalNotification = async (establishmentId, appointmentDat
   try {
     const start = appointmentData.data_hora?.toDate ? appointmentData.data_hora.toDate() : new Date(appointmentData.data_hora);
     
+    // Busca o owner_id do estabelecimento se o professional_id for 'owner'
+    let targetProfessionalId = appointmentData.professional_id || 'owner';
+    
+    if (targetProfessionalId === 'owner') {
+      const estRef = doc(db, 'establishments', establishmentId);
+      const estSnap = await getDoc(estRef);
+      if (estSnap.exists()) {
+        targetProfessionalId = estSnap.data().owner_id || 'owner';
+      }
+    }
+
     await addDoc(collection(db, "notifications"), {
       establishment_id: establishmentId,
-      professional_id: appointmentData.professional_id || 'owner',
+      professional_id: targetProfessionalId,
       type: 'new_appointment',
       title: 'Novo Agendamento! 📅',
       message: `${appointmentData.user_nome} agendou ${appointmentData.service_nome} para o dia ${format(start, "dd/MM 'às' HH:mm")}`,

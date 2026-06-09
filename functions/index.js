@@ -9,79 +9,70 @@ admin.initializeApp();
 /**
  * Trigger para enviar Notificação Push quando uma nova notificação é criada no Firestore
  */
-exports.onNotificationCreated = onDocumentCreated("notifications/{notificationId}", async (event) => {
+exports.onNotificationCreated = onDocumentCreated({ 
+  document: "notifications/{notificationId}",
+  region: "southamerica-east1" // Volta para a mesma região do banco de dados para evitar conflitos de trigger
+}, async (event) => {
   const snapshot = event.data;
-  if (!snapshot) {
-    logger.info("Nenhum dado encontrado no evento.");
-    return;
-  }
+  if (!snapshot) return;
 
   const notification = snapshot.data();
-  const userId = notification.user_id || notification.professional_id;
+  let userId = notification.user_id || notification.professional_id;
 
   if (!userId) {
-    logger.info("Notificação sem userId ou professionalId. Ignorando Push.");
+    logger.info("Notificação ignorada: sem destinatário.");
     return;
   }
 
   try {
-    // Busca os tokens do usuário no Firestore
+    // Caso especial para 'owner'
+    if (userId === 'owner' && notification.establishment_id) {
+      const estDoc = await admin.firestore().collection("establishments").doc(notification.establishment_id).get();
+      if (estDoc.exists) userId = estDoc.data().owner_id;
+    }
+
+    if (!userId || userId === 'owner') return;
+
     const userDoc = await admin.firestore().collection("users").doc(userId).get();
-    
-    if (!userDoc.exists) {
-      logger.info(`Usuário ${userId} não encontrado.`);
-      return;
-    }
+    if (!userDoc.exists) return;
 
-    const userData = userDoc.data();
-    const tokens = userData.fcmTokens || [];
-
+    const tokens = userDoc.data().fcmTokens || [];
     if (tokens.length === 0) {
-      logger.info(`Usuário ${userId} não possui tokens FCM registrados.`);
+      logger.info(`Usuário ${userId} não tem tokens salvos.`);
       return;
     }
 
-    // Prepara a mensagem Push
     const message = {
       notification: {
         title: notification.title || "Musa Agenda",
         body: notification.message || "Você tem uma nova atualização.",
       },
       data: {
-        type: notification.type || "general",
-        appointmentId: notification.appointment_id || "",
+        click_action: "/",
+        notification_id: event.params.notificationId
       },
       tokens: tokens,
     };
 
-    // Envia para todos os dispositivos do usuário
     const response = await admin.messaging().sendEachForMulticast(message);
-    
-    logger.info(`Push enviado com sucesso para ${response.successCount} dispositivos.`);
+    logger.info(`Push enviado para ${userId}: ${response.successCount} sucessos, ${response.failureCount} falhas.`);
 
-    // Limpeza opcional de tokens inválidos
+    // Limpeza automática de tokens mortos
     if (response.failureCount > 0) {
-      const failedTokens = [];
+      const deadTokens = [];
       response.responses.forEach((resp, idx) => {
-        if (!resp.success) {
-          const errorCode = resp.error?.code;
-          if (errorCode === 'messaging/invalid-registration-token' ||
-              errorCode === 'messaging/registration-token-not-registered') {
-            failedTokens.push(tokens[idx]);
-          }
+        if (!resp.success && (resp.error.code === 'messaging/invalid-registration-token' || resp.error.code === 'messaging/registration-token-not-registered')) {
+          deadTokens.push(tokens[idx]);
         }
       });
-
-      if (failedTokens.length > 0) {
+      if (deadTokens.length > 0) {
         await admin.firestore().collection("users").doc(userId).update({
-          fcmTokens: admin.firestore.FieldValue.arrayRemove(...failedTokens)
+          fcmTokens: admin.firestore.FieldValue.arrayRemove(...deadTokens)
         });
-        logger.info(`${failedTokens.length} tokens inválidos removidos.`);
       }
     }
-
   } catch (error) {
-    logger.error("Erro ao enviar Notificação Push:", error);
+    logger.error("Erro no disparo do Push:", error);
   }
 });
 

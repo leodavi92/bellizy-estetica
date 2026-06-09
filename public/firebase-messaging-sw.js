@@ -22,12 +22,42 @@ const messaging = firebase.messaging();
 
 messaging.onBackgroundMessage((payload) => {
   console.log('[firebase-messaging-sw.js] Received background message ', payload);
-  // Customize notification here
-  const notificationTitle = payload.notification.title;
+  
+  const notificationTitle = payload.notification?.title || payload.data?.title || 'Musa Agenda';
   const notificationOptions = {
-    body: payload.notification.body,
-    icon: '/icon.svg'
+    body: payload.notification?.body || payload.data?.message || 'Você tem uma nova atualização.',
+    icon: '/icon.svg',
+    badge: '/icon.svg',
+    tag: payload.data?.appointmentId || 'general-notification',
+    renotify: true,
+    vibrate: [200, 100, 200],
+    data: {
+      url: payload.data?.click_action || '/'
+    }
   };
 
-  self.registration.showNotification(notificationTitle, notificationOptions);
+  return self.registration.showNotification(notificationTitle, notificationOptions);
+});
+
+// Lida com o clique na notificação
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  
+  const urlToOpen = event.notification.data?.url || '/';
+
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      // Se já tiver uma aba aberta, foca nela
+      for (let i = 0; i < windowClients.length; i++) {
+        const client = windowClients[i];
+        if (client.url === urlToOpen && 'focus' in client) {
+          return client.focus();
+        }
+      }
+      // Se não, abre uma nova
+      if (clients.openWindow) {
+        return clients.openWindow(urlToOpen);
+      }
+    })
+  );
 });
