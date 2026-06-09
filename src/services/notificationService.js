@@ -64,24 +64,33 @@ export const createInternalNotification = async (establishmentId, appointmentDat
     // Busca o owner_id do estabelecimento se o professional_id for 'owner'
     let targetProfessionalId = appointmentData.professional_id || 'owner';
     
+    console.log("[NotificationService] Criando notificação interna para:", targetProfessionalId);
+    console.log("[NotificationService] Dados do agendamento:", appointmentData);
+
     if (targetProfessionalId === 'owner') {
       const estRef = doc(db, 'establishments', establishmentId);
       const estSnap = await getDoc(estRef);
       if (estSnap.exists()) {
-        targetProfessionalId = estSnap.data().owner_id || 'owner';
+        const estData = estSnap.data();
+        targetProfessionalId = estData.owner_id || estData.user_id || 'owner';
+        console.log("[NotificationService] 'owner' convertido para UID real:", targetProfessionalId);
       }
     }
 
-    await addDoc(collection(db, "notifications"), {
+    const notificationData = {
       establishment_id: establishmentId,
       professional_id: targetProfessionalId,
       type: 'new_appointment',
       title: 'Novo Agendamento! 📅',
       message: `${appointmentData.user_nome} agendou ${appointmentData.service_nome} para o dia ${format(start, "dd/MM 'às' HH:mm")}`,
       read: false,
-      appointment_id: appointmentData.id,
+      appointment_id: appointmentData.id || 'manual',
       createdAt: Timestamp.now()
-    });
+    };
+
+    console.log("[NotificationService] Salvando no Firestore:", notificationData);
+    await addDoc(collection(db, "notifications"), notificationData);
+    console.log("[NotificationService] Documento de notificação criado com sucesso.");
   } catch (err) {
     console.error("Erro ao criar notificação interna:", err);
   }
