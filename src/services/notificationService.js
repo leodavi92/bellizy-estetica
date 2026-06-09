@@ -1,6 +1,50 @@
-import { db } from './firebase';
-import { collection, addDoc, Timestamp } from 'firebase/firestore';
+import { db, messaging } from './firebase';
+import { collection, addDoc, Timestamp, doc, updateDoc, arrayUnion } from 'firebase/firestore';
+import { getToken, onMessage } from 'firebase/messaging';
 import { format } from 'date-fns';
+
+/**
+ * Solicita permissão para notificações e retorna o token FCM
+ */
+export const requestNotificationPermission = async (userId) => {
+  try {
+    const permission = await Notification.requestPermission();
+    
+    if (permission === 'granted') {
+      const token = await getToken(messaging, {
+        vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY // Você precisará gerar isso no Console do Firebase
+      });
+
+      if (token && userId) {
+        // Salva o token no documento do usuário para envios futuros
+        const userRef = doc(db, "users", userId);
+        await updateDoc(userRef, {
+          fcmTokens: arrayUnion(token),
+          pushEnabled: true,
+          updatedAt: Timestamp.now()
+        });
+        console.log("Token FCM registrado com sucesso");
+        return token;
+      }
+    } else {
+      console.warn("Permissão de notificação negada");
+    }
+  } catch (err) {
+    console.error("Erro ao solicitar permissão de notificação:", err);
+  }
+  return null;
+};
+
+/**
+ * Escuta mensagens quando o app está em primeiro plano
+ */
+export const onMessageListener = () =>
+  new Promise((resolve) => {
+    onMessage(messaging, (payload) => {
+      console.log("Mensagem recebida em primeiro plano:", payload);
+      resolve(payload);
+    });
+  });
 
 /**
  * Envia uma notificação interna para o profissional

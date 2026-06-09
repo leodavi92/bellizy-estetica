@@ -1,9 +1,89 @@
 const { onRequest } = require("firebase-functions/v2/https");
+const { onDocumentCreated } = require("firebase-functions/v2/firestore");
 const admin = require("firebase-admin");
 const mercadopago = require("mercadopago");
 const logger = require("firebase-functions/logger");
 
 admin.initializeApp();
+
+/**
+ * Trigger para enviar Notificação Push quando uma nova notificação é criada no Firestore
+ */
+exports.onNotificationCreated = onDocumentCreated("notifications/{notificationId}", async (event) => {
+  const snapshot = event.data;
+  if (!snapshot) {
+    logger.info("Nenhum dado encontrado no evento.");
+    return;
+  }
+
+  const notification = snapshot.data();
+  const userId = notification.user_id || notification.professional_id;
+
+  if (!userId) {
+    logger.info("Notificação sem userId ou professionalId. Ignorando Push.");
+    return;
+  }
+
+  try {
+    // Busca os tokens do usuário no Firestore
+    const userDoc = await admin.firestore().collection("users").doc(userId).get();
+    
+    if (!userDoc.exists) {
+      logger.info(`Usuário ${userId} não encontrado.`);
+      return;
+    }
+
+    const userData = userDoc.data();
+    const tokens = userData.fcmTokens || [];
+
+    if (tokens.length === 0) {
+      logger.info(`Usuário ${userId} não possui tokens FCM registrados.`);
+      return;
+    }
+
+    // Prepara a mensagem Push
+    const message = {
+      notification: {
+        title: notification.title || "Musa Agenda",
+        body: notification.message || "Você tem uma nova atualização.",
+      },
+      data: {
+        type: notification.type || "general",
+        appointmentId: notification.appointment_id || "",
+      },
+      tokens: tokens,
+    };
+
+    // Envia para todos os dispositivos do usuário
+    const response = await admin.messaging().sendEachForMulticast(message);
+    
+    logger.info(`Push enviado com sucesso para ${response.successCount} dispositivos.`);
+
+    // Limpeza opcional de tokens inválidos
+    if (response.failureCount > 0) {
+      const failedTokens = [];
+      response.responses.forEach((resp, idx) => {
+        if (!resp.success) {
+          const errorCode = resp.error?.code;
+          if (errorCode === 'messaging/invalid-registration-token' ||
+              errorCode === 'messaging/registration-token-not-registered') {
+            failedTokens.push(tokens[idx]);
+          }
+        }
+      });
+
+      if (failedTokens.length > 0) {
+        await admin.firestore().collection("users").doc(userId).update({
+          fcmTokens: admin.firestore.FieldValue.arrayRemove(...failedTokens)
+        });
+        logger.info(`${failedTokens.length} tokens inválidos removidos.`);
+      }
+    }
+
+  } catch (error) {
+    logger.error("Erro ao enviar Notificação Push:", error);
+  }
+});
 
 const PROJECT_ID = process.env.GCLOUD_PROJECT || "estetica-f543c";
 const REGION = process.env.FUNCTION_REGION || "us-central1";

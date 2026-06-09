@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { Sparkles, ArrowRight, Store, Star, Trash2 } from 'lucide-react';
+import { Sparkles, ArrowRight, Store, Star, Trash2, Bell } from 'lucide-react';
 import Login from './pages/Login';
 import ClientDashboard from './pages/ClientDashboard';
 import ClientProfilePage from './pages/ClientProfilePage';
@@ -15,6 +15,71 @@ import Layout from './components/Layout';
 import { db } from './services/firebase';
 import { deleteField, doc, onSnapshot, updateDoc } from 'firebase/firestore';
 import { getEstablishmentBySlug, sanitizeSlug } from './services/establishmentService';
+import { requestNotificationPermission, onMessageListener } from './services/notificationService';
+
+function NotificationHandler() {
+  const { user } = useAuth();
+  const [showBanner, setShowBanner] = useState(false);
+
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    // Verifica se já temos permissão ou se devemos pedir
+    if (Notification.permission === 'default') {
+      // Pequeno atraso para não assustar o usuário assim que logar
+      const timer = setTimeout(() => setShowBanner(true), 3000);
+      return () => clearTimeout(timer);
+    }
+
+    if (Notification.permission === 'granted') {
+      requestNotificationPermission(user.uid);
+    }
+
+    // Listener para mensagens em primeiro plano
+    const unsubscribe = onMessageListener().then(payload => {
+      // Você pode mostrar um toast customizado aqui se quiser
+      console.log("Notificação recebida:", payload);
+    });
+
+  }, [user?.uid]);
+
+  const handleEnable = async () => {
+    const token = await requestNotificationPermission(user.uid);
+    if (token) {
+      setShowBanner(false);
+    }
+  };
+
+  if (!showBanner) return null;
+
+  return (
+    <div className="fixed top-4 left-4 right-4 z-[9999] animate-in fade-in slide-in-from-top-4 duration-500">
+      <div className="bg-white rounded-3xl shadow-2xl border-2 border-pink-100 p-4 flex items-center gap-4">
+        <div className="h-12 w-12 rounded-2xl bg-pink-100 flex items-center justify-center text-pink-600 shrink-0">
+          <Bell className="animate-bounce" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-black text-slate-900">Ativar Notificações?</p>
+          <p className="text-xs font-medium text-slate-500">Receba lembretes de agendamentos e promoções.</p>
+        </div>
+        <div className="flex gap-2">
+          <button 
+            onClick={() => setShowBanner(false)}
+            className="px-3 py-2 text-xs font-bold text-slate-400 hover:text-slate-600"
+          >
+            Agora não
+          </button>
+          <button 
+            onClick={handleEnable}
+            className="bg-pink-600 text-white px-4 py-2 rounded-xl text-xs font-black shadow-lg shadow-pink-200 active:scale-95 transition-transform"
+          >
+            Ativar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function PrivateRoute({ children, adminOnly = false }) {
   const { user, loading } = useAuth();
@@ -266,6 +331,7 @@ function AdminRoute({ children }) {
 function App() {
   return (
     <AuthProvider>
+      <NotificationHandler />
       <Router>
         <Routes>
           <Route path="/login" element={<Login />} />
