@@ -298,32 +298,6 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleTestPush = async () => {
-    if (!user?.uid || !establishment?.id) return;
-    
-    try {
-      showToast("Enviando notificação de teste...");
-      // Força um ID de documento único para garantir que o Firebase dispare o evento onDocumentCreated
-      const testId = `test-${Date.now()}`;
-      await setDoc(doc(db, "notifications", testId), {
-        establishment_id: establishment.id,
-        user_nome: "Teste de Sistema",
-        service_nome: "Notificação Push",
-        message: `Teste enviado em: ${new Date().toLocaleTimeString()}`,
-        title: "Teste de Notificação 🔔",
-        data_hora: new Date(),
-        professional_id: user.uid,
-        read: false,
-        type: 'test_push',
-        createdAt: Timestamp.now()
-      });
-      showToast("Solicitação de teste enviada! Aguarde alguns segundos.");
-    } catch (error) {
-      console.error("Erro ao testar push:", error);
-      showToast("Erro ao enviar teste.", "error");
-    }
-  };
-
   const handleConfirmReschedule = async (appointment, newSlot) => {
     try {
       setLoading(true);
@@ -1947,7 +1921,6 @@ export default function AdminDashboard() {
           establishment={establishment}
           profileInfo={profileInfo}
           userRole={user?.tipo}
-          onTestPush={handleTestPush}
         />
       </aside>
 
@@ -1974,7 +1947,6 @@ export default function AdminDashboard() {
         establishment={establishment}
         profileInfo={profileInfo}
         userRole={user?.tipo}
-        onTestPush={handleTestPush}
       />
 
       {/* Main Content Area */}

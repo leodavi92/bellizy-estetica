@@ -17,7 +17,7 @@ import {
   Bell
 } from 'lucide-react';
 
-const SidebarContent = ({ view, setView, logout, establishment, profileInfo, menuItems: propMenuItems, userRole, onTestPush }) => {
+const SidebarContent = ({ view, setView, logout, establishment, profileInfo, menuItems: propMenuItems, userRole }) => {
   const userPlan = establishment?.plan || establishment?.subscription?.plan || 'bronze';
   const isSubscriptionView = view === 'assinatura' || view === 'planos_assinatura';
 
@@ -92,17 +92,8 @@ const SidebarContent = ({ view, setView, logout, establishment, profileInfo, men
         ))}
       </nav>
 
-      {/* Rodapé: Sair e Debug */}
-      <div className="p-4 border-t border-gray-100 mt-auto space-y-2">
-        {onTestPush && (
-          <button 
-            onClick={onTestPush}
-            className="w-full flex items-center gap-3 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest text-pink-400 border border-pink-100 hover:bg-pink-50 transition-all"
-          >
-            <Bell size={14} />
-            Testar Notificação
-          </button>
-        )}
+      {/* Rodapé: Sair */}
+      <div className="p-4 border-t border-gray-100 mt-auto">
         <button 
           onClick={logout}
           className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold text-gray-400 hover:bg-red-50 hover:text-red-600 transition-all"
