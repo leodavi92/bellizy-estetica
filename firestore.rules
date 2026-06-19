@@ -14,17 +14,14 @@ service cloud.firestore {
 
     // Regras para a coleção de Usuários
     match /users/{userId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn() && request.auth.uid == userId;
+      allow read, write: if isSignedIn() && request.auth.uid == userId;
     }
 
     // Regras para a coleção de Estabelecimentos
     match /establishments/{estId} {
       allow read: if true; // Público para clientes verem informações e agendarem
-      allow write: if isSignedIn() && (
-        resource == null || // Permite criar novo
-        resource.data.owner_id == request.auth.uid // Apenas dono edita
-      );
+      allow create: if isSignedIn() && request.resource.data.owner_id == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.owner_id == request.auth.uid;
     }
 
     // Regras para a coleção de Serviços
@@ -35,23 +32,125 @@ service cloud.firestore {
         getUserData().establishment_id == request.resource.data.establishment_id;
     }
 
+    // Regras para a coleção de Profissionais
+    match /professionals/{profId} {
+      allow read: if true; // Todos precisam ver os profissionais do estabelecimento
+      allow create: if isSignedIn() && 
+        getUserData().tipo == 'admin' && 
+        request.resource.data.establishment_id == getUserData().establishment_id;
+      allow update, delete: if isSignedIn() && 
+        getUserData().tipo == 'admin' && 
+        resource.data.establishment_id == getUserData().establishment_id;
+    }
+
+    // Regras para a coleção de Notificações
+    match /notifications/{notifId} {
+      allow read: if isSignedIn() && (
+        (getUserData().tipo in ['admin', 'staff'] && getUserData().establishment_id == resource.data.establishment_id) ||
+        (resource.data.user_id == request.auth.uid) ||
+        (resource.data.professional_id == request.auth.uid)
+      );
+      allow create: if isSignedIn() && request.resource.data.establishment_id != null;
+      allow update, delete: if isSignedIn() && (
+        (getUserData().tipo in ['admin', 'staff'] && getUserData().establishment_id == resource.data.establishment_id) ||
+        (resource.data.user_id == request.auth.uid) ||
+        (resource.data.professional_id == request.auth.uid)
+      );
+    }
+
+    // Regras para a coleção de Clientes Manuais
+    match /manual_clients/{clientId} {
+      allow read: if isSignedIn() && 
+        getUserData().tipo in ['admin', 'staff'] && 
+        getUserData().establishment_id == resource.data.establishment_id;
+      allow create: if isSignedIn() && 
+        getUserData().tipo in ['admin', 'staff'] && 
+        getUserData().establishment_id == request.resource.data.establishment_id;
+      allow update, delete: if isSignedIn() && 
+        getUserData().tipo in ['admin', 'staff'] && 
+        getUserData().establishment_id == resource.data.establishment_id;
+    }
+
+    // Regras para a coleção de Transações (Financeiro)
+    match /transactions/{txId} {
+      allow read: if isSignedIn() && 
+        getUserData().tipo in ['admin', 'staff'] && 
+        getUserData().establishment_id == resource.data.establishment_id;
+      allow create: if isSignedIn() && 
+        getUserData().tipo in ['admin', 'staff'] && 
+        getUserData().establishment_id == request.resource.data.establishment_id;
+      allow update, delete: if isSignedIn() && 
+        getUserData().tipo in ['admin', 'staff'] && 
+        getUserData().establishment_id == resource.data.establishment_id;
+    }
+
+    // Regras para a coleção de Despesas
+    match /expenses/{expId} {
+      allow read: if isSignedIn() && 
+        getUserData().tipo in ['admin', 'staff'] && 
+        getUserData().establishment_id == resource.data.establishment_id;
+      allow create: if isSignedIn() && 
+        getUserData().tipo in ['admin', 'staff'] && 
+        getUserData().establishment_id == request.resource.data.establishment_id;
+      allow update, delete: if isSignedIn() && 
+        getUserData().tipo in ['admin', 'staff'] && 
+        getUserData().establishment_id == resource.data.establishment_id;
+    }
+
+    // Regras para a coleção de Lembretes
+    match /reminders/{remId} {
+      allow read: if isSignedIn() && 
+        getUserData().tipo in ['admin', 'staff'] && 
+        getUserData().establishment_id == resource.data.establishment_id;
+      allow create: if isSignedIn() && 
+        getUserData().tipo in ['admin', 'staff'] && 
+        getUserData().establishment_id == request.resource.data.establishment_id;
+      allow update, delete: if isSignedIn() && 
+        getUserData().tipo in ['admin', 'staff'] && 
+        getUserData().establishment_id == resource.data.establishment_id;
+    }
+
+    // Regras para a coleção de Modelos de Anamnese
+    match /anamnesis_templates/{templateId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && 
+        getUserData().tipo in ['admin', 'staff'] && 
+        getUserData().establishment_id == request.resource.data.establishment_id;
+      allow update, delete: if isSignedIn() && 
+        getUserData().tipo in ['admin', 'staff'] && 
+        getUserData().establishment_id == resource.data.establishment_id;
+    }
+
+    // Regras para a coleção de Respostas de Anamnese
+    match /anamnesis_responses/{responseId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.establishment_id != null;
+      allow update, delete: if isSignedIn() && (
+        (getUserData().tipo in ['admin', 'staff'] && getUserData().establishment_id == resource.data.establishment_id) ||
+        (resource.data.user_id == request.auth.uid) ||
+        (resource.data.customer_id == request.auth.uid)
+      );
+    }
+
     // Regras para a coleção de Agendamentos
     match /appointments/{appId} {
       // Leitura: 
-      // 1. Admins leem agendamentos do seu estabelecimento
-      // 2. Clientes leem seus próprios agendamentos
-      allow read: if isSignedIn() && (
-        (getUserData().tipo == 'admin' && getUserData().establishment_id == resource.data.establishment_id) ||
-        (resource.data.user_id == request.auth.uid)
-      );
+      // 1. Admins/staff leem todos do seu estabelecimento
+      // 2. Clientes leem seus próprios
+      // 3. Todos logados podem ler para verificar disponibilidade
+      allow read: if isSignedIn();
 
       // Escrita:
-      // 1. Clientes criam agendamentos (vaga deve estar livre - lógica complexa via app, aqui validamos apenas IDs)
-      // 2. Admins cancelam/editam agendamentos do seu estabelecimento
-      // 3. Clientes cancelam seus próprios agendamentos
-      allow create: if isSignedIn(); 
+      // 1. Clientes criam agendamentos para SI MESMOS
+      // 2. Admins/staff criam/editam/cancelam no seu próprio estabelecimento
+      allow create: if isSignedIn() && 
+        request.resource.data.establishment_id != null && (
+          request.resource.data.user_id == request.auth.uid || 
+          (getUserData().tipo in ['admin', 'staff'] && 
+           getUserData().establishment_id == request.resource.data.establishment_id)
+        );
       allow update, delete: if isSignedIn() && (
-        (getUserData().tipo == 'admin' && getUserData().establishment_id == resource.data.establishment_id) ||
+        (getUserData().tipo in ['admin', 'staff'] && getUserData().establishment_id == resource.data.establishment_id) ||
         (resource.data.user_id == request.auth.uid)
       );
     }
