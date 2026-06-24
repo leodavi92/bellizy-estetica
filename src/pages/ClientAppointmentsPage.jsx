@@ -303,6 +303,17 @@ export default function ClientAppointmentsPage() {
                               <span className="text-sm font-black text-slate-900 uppercase tracking-tight">Valor Total</span>
                               <span className="text-lg font-black text-pink-600">{formatPrice(app.total_price || app.preco)}</span>
                             </div>
+
+                            {/* Observações */}
+                            {app.observacoes && (
+                              <div className="mt-4 space-y-2">
+                                <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Obs.</h4>
+                                <div className="bg-blue-50/20 border border-blue-50/50 rounded-xl sm:rounded-2xl p-3 sm:p-4 flex gap-2.5 sm:gap-3">
+                                  <Info size={16} className="text-blue-400 shrink-0 mt-0.5" />
+                                  <p className="text-xs sm:text-sm text-slate-600 leading-relaxed italic">{app.observacoes}</p>
+                                </div>
+                              </div>
+                            )}
                           </div>
 
                           <div className="flex flex-col gap-3">

@@ -50,6 +50,7 @@ export default function BookingConfirmationPage() {
   const [confirmedAppointment, setConfirmedAppointment] = useState(null);
   const [professional, setProfessional] = useState(null);
   const [assignedProfessionals, setAssignedProfessionals] = useState({}); // Mapa de professionalId -> dados do prof
+  const [observacoes, setObservacoes] = useState(''); // Campo de observações do cliente
 
   const selectedDate = useMemo(() => selectedDateStr ? new Date(selectedDateStr) : null, [selectedDateStr]);
 
@@ -196,7 +197,8 @@ export default function BookingConfirmationPage() {
         service_nome: selectedServices.map(s => s.nome).join(', ') || 'Serviço',
         duration: dur,
         preco: totalPrice,
-        assignments: assignments
+        assignments: assignments,
+        observacoes: observacoes.trim() // Campo de observações do cliente
       };
 
       const appointmentId = await createAppointment(appointmentData);
@@ -536,6 +538,20 @@ export default function BookingConfirmationPage() {
         {/* Lado Direito: Ação Final */}
         <aside className="w-full lg:w-[320px] space-y-6">
           <div className="space-y-4">
+            {/* Campo de Observações */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold uppercase tracking-widest text-slate-400">
+                Observações para a profissional
+              </label>
+              <textarea
+                value={observacoes}
+                onChange={(e) => setObservacoes(e.target.value)}
+                placeholder="Ex: Quero a cor vermelha escura, ou chego 5 minutos atrasado..."
+                className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50/50 px-4 py-4 text-sm text-slate-900 outline-none focus:border-pink-300 focus:bg-white transition-all resize-none"
+                rows={4}
+              />
+            </div>
+
             <button
               onClick={handleConfirm}
               disabled={loading}
