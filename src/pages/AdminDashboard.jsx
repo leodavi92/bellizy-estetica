@@ -415,19 +415,18 @@ export default function AdminDashboard() {
 
   // Lógica de Permissões por Plano
   const userPlan = establishment?.plan || establishment?.subscription?.plan || 'bronze'; // bronze, silver, gold
-  const subscriptionStatus = subscriptionService.checkSubscriptionStatus(establishment);
   
   const hasAccess = (feature) => {
     if (!establishment?.subscription) return false;
     const status = establishment.subscription.status;
     const plan = userPlan;
     
-    // Verifica se é trial e a data não expirou
+    // Verifica se o trial ainda é válido (se status for trial)
     const isTrialValid = status === 'trial' && 
       establishment.subscription.trial_ends_at && 
-      new Date() < (establishment.subscription.trial_ends_at.toDate ? establishment.subscription.trial_ends_at.toDate() : new Date(establishment.subscription.trial_ends_at));
-    
-    // Se não estiver ativo ou o trial não for válido, só libera visualização de assinaturas
+      !isAfter(new Date(), establishment.subscription.trial_ends_at.toDate());
+
+    // Se não for active e não for trial válido, só libera visualização de assinaturas
     if (status !== 'active' && !isTrialValid && feature !== 'assinatura') return false;
 
     const teamLimit = plan === 'bronze' ? 1 : plan === 'silver' ? 3 : 7;
@@ -1957,33 +1956,6 @@ export default function AdminDashboard() {
 
       {/* Main Content Area */}
       <main className="flex-1 p-4 md:p-10 pb-12 md:pb-10 max-w-6xl mx-auto w-full overflow-y-auto relative">
-        
-        {/* Banner de Trial */}
-        {subscriptionStatus.status === 'trial' && subscriptionStatus.daysRemaining && (
-          <div className="mb-6 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-3xl p-4 md:p-6">
-            <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-amber-100 rounded-2xl flex items-center justify-center text-amber-600 shrink-0">
-                  <Sparkles size={20} />
-                </div>
-                <div>
-                  <h3 className="font-black text-gray-900 tracking-tight">
-                    Período de Teste Gratuito
-                  </h3>
-                  <p className="text-sm text-gray-500 font-medium">
-                    Você tem <span className="font-black text-amber-600">{subscriptionStatus.daysRemaining}</span> {subscriptionStatus.daysRemaining === 1 ? 'dia' : 'dias'} restantes de acesso completo ao plano {userPlan === 'gold' ? 'Premium VIP' : userPlan === 'silver' ? 'Profissional' : 'Essencial'}!
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setView('planos_assinatura')}
-                className="bg-amber-600 hover:bg-amber-700 text-white px-6 py-3 rounded-2xl font-black uppercase tracking-widest text-xs transition-all active:scale-95 shadow-lg shadow-amber-100"
-              >
-                Ver Planos
-              </button>
-            </div>
-          </div>
-        )}
         
         {/* Top Header Barra de Ações (Sininho, Perfil, etc) */}
         <div className="flex items-center justify-between mb-8 hidden md:flex">
