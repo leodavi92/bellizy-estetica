@@ -4,8 +4,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { ArrowLeftRight, LogOut, User, Calendar, Home, Phone, MessageCircleMore, Bell, X } from 'lucide-react';
 import { maskPhone, validatePhone } from '../utils/formatters';
 import InstallPWA from './InstallPWA';
-import { doc, updateDoc, collection, query, where, onSnapshot } from 'firebase/firestore';
-import { db } from '../services/firebase';
+import { doc, collection, query, where, onSnapshot } from 'firebase/firestore';
+import { db, updateUserDoc } from '../services/firebase';
 import { getEstablishmentBySlug, getWhatsAppUrl } from '../services/establishmentService';
 import { getMyAppointments } from '../services/appointmentService';
 import { format } from 'date-fns';
@@ -95,7 +95,7 @@ export default function Layout({ children }) {
     setClientSaving(true);
     setClientError('');
     try {
-      await updateDoc(doc(db, 'users', user.uid), { nome, telefone });
+      await updateUserDoc(user.uid, { nome, telefone });
       if (setUser) setUser((prev) => ({ ...prev, nome, telefone }));
       setClientSetupOpen(false);
     } catch (e) {

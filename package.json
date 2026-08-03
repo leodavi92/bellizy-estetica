@@ -7,7 +7,12 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:ui": "vitest --ui",
+    "backup:firestore": "node scripts/backup-firestore.cjs",
+    "restore:firestore": "node scripts/restore-firestore.cjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.4",
@@ -36,6 +41,7 @@
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.3",
     "vite": "^5.2.0",
-    "vite-plugin-pwa": "^0.20.0"
+    "vite-plugin-pwa": "^0.20.0",
+    "vitest": "^4.1.10"
   }
 }

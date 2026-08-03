@@ -1,7 +1,40 @@
-import { db, messaging } from './firebase';
-import { collection, addDoc, Timestamp, doc, updateDoc, arrayUnion, getDoc } from 'firebase/firestore';
+import { db, messaging, updateUserDocRef } from './firebase';
+import { collection, addDoc, Timestamp, doc, getDoc, setDoc } from 'firebase/firestore';
 import { getToken, onMessage } from 'firebase/messaging';
 import { format } from 'date-fns';
+
+/**
+ * Hash FNV-1a 32-bit determinístico (síncrono, zero dependências browser).
+ * Suficiente para gerar IDs de notificação idempotentes — NÃO usa para criptografia.
+ */
+function fnv1a32(str) {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i);
+    hash = (hash * 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, '0');
+}
+
+/**
+ * Gera um ID de notificação DETERMINÍSTICO para idempotência (B-08).
+ * Se os mesmos parâmetros forem passados 10 vezes, será sempre o mesmo ID,
+ * então setDoc + merge evita duplicatas.
+ */
+function notifId(estId, action, { appointmentId = null, userId = null, professionalId = null, extra = '' } = {}) {
+  const base = [
+    estId || 'no-est',
+    action || 'no-action',
+    appointmentId || 'no-app',
+    userId || 'no-user',
+    professionalId || 'no-prof',
+    extra || ''
+  ].join('|');
+  // Dois hashes independentes com salting leve = 16 chars hex estáveis.
+  const a = fnv1a32(base);
+  const b = fnv1a32('salt||' + base + '||v1');
+  return `n_${a}${b}`;
+}
 
 /**
  * Solicita permissão para notificações e retorna o token FCM
@@ -17,19 +50,26 @@ export const requestNotificationPermission = async (userId) => {
 
       if (token && userId) {
         console.log("Token FCM gerado:", token);
-        // Salva o token no documento do usuário para envios futuros
         const userRef = doc(db, "users", userId);
         const userSnap = await getDoc(userRef);
-        
+
         if (userSnap.exists()) {
-          await updateDoc(userRef, {
-            fcmTokens: arrayUnion(token),
-            pushEnabled: true,
-            updatedAt: Timestamp.now()
-          });
-          console.log("Token FCM registrado no Firestore para o usuário:", userId);
+          const existingTokens = Array.isArray(userSnap.data().fcmTokens) ? userSnap.data().fcmTokens : [];
+
+          // A8: DEDUPLICAÇÃO: só salva se o token NÃO existir no array.
+          if (existingTokens.includes(token)) {
+            console.log("Token FCM já cadastrado previamente. Nenhuma alteração feita.");
+          } else {
+            // Limpeza leve: mantém só os últimos 10 tokens (múltiplos dispositivos).
+            const pruned = existingTokens.slice(-9);
+            await updateUserDocRef(userRef, {
+              fcmTokens: [...pruned, token],
+              pushEnabled: true,
+              updatedAt: Timestamp.now()
+            });
+            console.log("Token FCM registrado no Firestore para o usuário:", userId);
+          }
         } else {
-          // Se o documento na coleção 'users' não existir (raro, mas possível dependendo do fluxo de login), tenta criar ou avisar
           console.warn("Documento do usuário não encontrado na coleção 'users'. Verifique a estrutura do banco.");
         }
         return token;
@@ -99,46 +139,74 @@ export const createInternalNotification = async (establishmentId, appointmentDat
       createdAt: Timestamp.now()
     };
 
-    await addDoc(collection(db, "notifications"), notificationData);
-    console.log("[NotificationService] Notificação real criada para o UID:", targetProfessionalId);
+    const id = notifId(establishmentId, 'new_appointment', {
+      appointmentId: appointmentData.id || 'manual',
+      professionalId: targetProfessionalId,
+      extra: String(start.getTime())
+    });
+    await setDoc(doc(db, "notifications", id), notificationData, { merge: true });
+    console.log("[NotificationService] Notificação real criada para o UID:", targetProfessionalId, "(idempotente:", id, ")");
   } catch (err) {
     console.error("Erro ao criar notificação interna:", err);
   }
 };
 
 /**
- * Simula o disparo de e-mail de confirmação (via Resend/EmailJS)
- * Para ativar realmente, você precisará configurar as chaves de API
+ * Cria uma notificação para o cliente (idempotente por estId + userId + type + appointmentId)
  */
-export const sendConfirmationEmail = async (clientEmail, appointmentData) => {
-  console.log(`[Email Service] Enviando confirmação para ${clientEmail}...`);
-  
-  // Exemplo de como seria a integração com EmailJS:
-  // emailjs.send("YOUR_SERVICE_ID", "YOUR_TEMPLATE_ID", {
-  //   to_name: appointmentData.user_nome,
-  //   service_name: appointmentData.service_nome,
-  //   date: format(appointmentData.data_hora, "dd/MM/yyyy HH:mm"),
-  //   professional_name: appointmentData.professional_name
-  // });
-
-  return true;
-};
-
-/**
- * Cria uma notificação para o cliente
- */
-export const createClientNotification = async (establishmentId, userId, type, title, message) => {
+export const createClientNotification = async (establishmentId, userId, type, title, message, appointmentId = null, extra = '') => {
   try {
-    await addDoc(collection(db, "notifications"), {
+    const id = notifId(establishmentId, type, { userId, appointmentId, extra });
+    await setDoc(doc(db, "notifications", id), {
       establishment_id: establishmentId,
       user_id: userId,
       type,
       title,
       message,
+      appointment_id: appointmentId,
       read: false,
       createdAt: Timestamp.now()
-    });
+    }, { mergeFields: ['read'] }); // Não sobrescreve se já foi lido
   } catch (err) {
     console.error("Erro ao criar notificação para o cliente:", err);
+  }
+};
+
+/**
+ * Helper genérico: cria/atualiza notificação de ação sobre appointment (admin/cancelled/completed/rescheduled)
+ * com idempotência via appointment_id + type + professional_id/user_id.
+ */
+export const createAppointmentEventNotification = async ({
+  establishment_id,
+  targetProfessionalId = null,
+  targetUserId = null,
+  type,
+  title,
+  message,
+  appointment_id = null,
+  extra = ''
+}) => {
+  try {
+    if (!targetProfessionalId && !targetUserId) return;
+    const id = notifId(establishment_id, type, {
+      appointmentId: appointment_id,
+      userId: targetUserId,
+      professionalId: targetProfessionalId,
+      extra
+    });
+    const data = {
+      establishment_id,
+      type,
+      title,
+      message,
+      read: false,
+      appointment_id,
+      createdAt: Timestamp.now()
+    };
+    if (targetProfessionalId) data.professional_id = targetProfessionalId;
+    if (targetUserId) data.user_id = targetUserId;
+    await setDoc(doc(db, "notifications", id), data, { mergeFields: ['read'] });
+  } catch (err) {
+    console.error("Erro ao criar notificação de evento de agendamento:", err);
   }
 };

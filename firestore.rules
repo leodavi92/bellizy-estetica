@@ -1,158 +1,376 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Função auxiliar para verificar se o usuário está logado
+
+    // ============================================================
+    // FUNÇÕES AUXILIARES CENTRALIZADAS
+    // ============================================================
+
     function isSignedIn() {
       return request.auth != null;
     }
 
-    // Função para pegar os dados do usuário atual
     function getUserData() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
-    // Regras para a coleção de Usuários
+    function userType() {
+      return isSignedIn() ? getUserData().tipo : null;
+    }
+
+    function userEstablishmentId() {
+      return isSignedIn() ? getUserData().establishment_id : null;
+    }
+
+    function isAdminOrStaff(targetEstablishmentId) {
+      return isSignedIn() &&
+        userType() in ['admin', 'staff'] &&
+        userEstablishmentId() == targetEstablishmentId;
+    }
+
+    function isOwnerAppointment() {
+      return isSignedIn() && resource.data.user_id == request.auth.uid;
+    }
+
+    function isRequestOwnerAppointment() {
+      return isSignedIn() && request.resource.data.user_id == request.auth.uid;
+    }
+
+    function hasEstablishmentQuery() {
+      return request.query.limit <= 500;
+    }
+
+    // ============================================================
+    // VALIDAÇÕES GENÉRICAS (V1 — Server-Side Schema Validation)
+    // ============================================================
+
+    // Garante que o valor é um Timestamp válido
+    function isTimestamp(value) {
+      return value is timestamp;
+    }
+
+    // Garante que um número NÃO É NEGATIVO
+    function isNonNegativeNumber(value) {
+      return value is number && value >= 0;
+    }
+
+    // Garante que uma string tem tamanho entre [min..max]
+    function stringLen(value, min, max) {
+      return value is string && value.size() >= min && value.size() <= max;
+    }
+
+    // Garante que o documento só tem um conjunto de campos permitidos (whitelist)
+    // Previne DoS com campos arbitrários gigantes.
+    function onlyAllowedKeys(data, allowedKeys) {
+      return data.keys().toSet().difference(allowedKeys.toSet()).size() == 0;
+    }
+
+    // Validacoes individuais de campos imutaveis (nao podem ser alterados por user comum)
+    // Bloqueia mudancas em `tipo` (cliente -> admin) e `establishment_id` (sequestro de estab)
+    function sensitiveUserFieldsUnchanged() {
+      return resource.data.tipo == request.resource.data.tipo &&
+             resource.data.establishment_id == request.resource.data.establishment_id;
+    }
+
+    // Valida que os campos de subscription e plano NÃO podem ser alterados pelo DONO do estab (apenas Cloud Functions com admin SDK pode mudar)
+    function subscriptionFieldsUnchanged() {
+      return resource.data.plan == request.resource.data.plan &&
+             resource.data.subscription == request.resource.data.subscription;
+    }
+
+    // ============================================================
+    // RATE LIMIT POR USUÁRIO (V2 — Anti-Spam / DoS em Writes)
+    // LÊ o último write registrado em `users/{uid}.last_write_ts`.
+    // Mínimo 6s entre writes (≈ 10 writes/min/usuário).
+    //
+    // SEMântica:
+    //  - Admin/Staff = isentos (taxa de escrita interna é alta).
+    //  - Não logados = bloqueados (não precisa de rate limit, já é bloqueado).
+    //  - Usuário com last_write_ts nulo = sempre passa (1ª escrita, legados ainda não atualizaram o campo).
+    //  - Caso geral: intervalo >= 6000 ms.
+    // ============================================================
+
+    function hasRateLimit() {
+      return (isSignedIn() && userType() in ['admin', 'staff']) || (
+        isSignedIn() && (
+          getUserData().last_write_ts == null ||
+          request.time.toMillis() - getUserData().last_write_ts.toMillis() >= 6000
+        )
+      );
+    }
+
+    // ============================================================
+    // 1. USERS — Somente o próprio usuário lê/escreve seus dados
+    //    Campos permitidos whitelistados para bloquear lixo
+    // ============================================================
+
     match /users/{userId} {
-      allow read, write: if isSignedIn() && request.auth.uid == userId;
+      allow read: if isSignedIn() && request.auth.uid == userId;
+      allow create: if isSignedIn() && request.auth.uid == userId
+        && onlyAllowedKeys(request.resource.data, [
+             'uid', 'nome', 'email', 'tipo', 'estabelecimento_ids',
+             'establishment_id', 'avatar_url', 'fcm_tokens',
+             'createdAt', 'last_write_ts', 'telefone', 'owner_email',
+             'requirePasswordChange', 'aceitou_lgpd_em', 'aceitou_lgpd_version',
+             'professional_id', 'saved_establishments', 'last_establishment_slug'
+           ]);
+      allow update, delete: if isSignedIn() && request.auth.uid == userId
+        && sensitiveUserFieldsUnchanged()
+        && onlyAllowedKeys(request.resource.data, [
+             'uid', 'nome', 'email', 'tipo', 'estabelecimento_ids',
+             'establishment_id', 'avatar_url', 'fcm_tokens',
+             'createdAt', 'last_write_ts', 'telefone', 'owner_email',
+             'requirePasswordChange', 'aceitou_lgpd_em', 'aceitou_lgpd_version',
+             'professional_id', 'saved_establishments', 'last_establishment_slug'
+           ]);
     }
 
-    // Regras para a coleção de Estabelecimentos
+    // ============================================================
+    // 2. ESTABELECIMENTOS — Leitura pública (minisite). Escrita só dono.
+    // ============================================================
+
     match /establishments/{estId} {
-      allow read: if true; // Público para clientes verem informações e agendarem
-      allow create: if isSignedIn() && request.resource.data.owner_id == request.auth.uid;
-      allow update, delete: if isSignedIn() && resource.data.owner_id == request.auth.uid;
+      allow read: if true;
+      allow create: if isSignedIn() && request.resource.data.owner_id == request.auth.uid
+        && stringLen(request.resource.data.name, 2, 120)
+        && hasRateLimit();
+      allow update, delete: if isSignedIn() && resource.data.owner_id == request.auth.uid
+        && subscriptionFieldsUnchanged();
     }
 
-    // Regras para a coleção de Serviços
+    // ============================================================
+    // 3. SERVIÇOS — Validação Server-Side
+    // ============================================================
+
     match /services/{serviceId} {
-      allow read: if true; // Clientes precisam ler serviços para agendar
-      allow write: if isSignedIn() && 
-        getUserData().tipo == 'admin' && 
-        getUserData().establishment_id == request.resource.data.establishment_id;
+      allow read: if hasEstablishmentQuery();
+      allow create: if isAdminOrStaff(request.resource.data.establishment_id)
+        && userType() == 'admin'
+        && stringLen(request.resource.data.nome, 2, 120)
+        && isNonNegativeNumber(request.resource.data.preco)
+        && request.resource.data.preco <= 99999.99
+        && isNonNegativeNumber(request.resource.data.duracao)
+        && request.resource.data.duracao <= 720  // Máx 12h
+        && (
+             request.resource.data.descricao == null ||
+             stringLen(request.resource.data.descricao, 0, 2000)
+           )
+        && hasRateLimit();
+
+      allow update, delete: if isAdminOrStaff(resource.data.establishment_id)
+        && userType() == 'admin'
+        && hasRateLimit();
     }
 
-    // Regras para a coleção de Profissionais
+    // ============================================================
+    // 4. PROFISSIONAIS — Validação Server-Side
+    // ============================================================
+
     match /professionals/{profId} {
-      allow read: if true; // Todos precisam ver os profissionais do estabelecimento
-      allow create: if isSignedIn() && 
-        getUserData().tipo == 'admin' && 
-        request.resource.data.establishment_id == getUserData().establishment_id;
-      allow update, delete: if isSignedIn() && 
-        getUserData().tipo == 'admin' && 
-        resource.data.establishment_id == getUserData().establishment_id;
+      allow read: if hasEstablishmentQuery();
+      allow create: if isAdminOrStaff(request.resource.data.establishment_id)
+        && userType() == 'admin'
+        && stringLen(request.resource.data.nome, 2, 120)
+        && (
+             request.resource.data.especialidade == null ||
+             stringLen(request.resource.data.especialidade, 0, 120)
+           )
+        && hasRateLimit();
+
+      allow update, delete: if isAdminOrStaff(resource.data.establishment_id)
+        && userType() == 'admin'
+        && hasRateLimit();
     }
 
-    // Regras para a coleção de Notificações
+    // ============================================================
+    // 5. NOTIFICAÇÕES — Anti-Spam + Validação
+    // ============================================================
+
     match /notifications/{notifId} {
       allow read: if isSignedIn() && (
-        (getUserData().tipo in ['admin', 'staff'] && getUserData().establishment_id == resource.data.establishment_id) ||
+        (isAdminOrStaff(resource.data.establishment_id)) ||
         (resource.data.user_id == request.auth.uid) ||
         (resource.data.professional_id == request.auth.uid)
       );
-      allow create: if isSignedIn() && request.resource.data.establishment_id != null;
+      allow create: if isAdminOrStaff(request.resource.data.establishment_id)
+        && stringLen(request.resource.data.title, 2, 200)
+        && stringLen(request.resource.data.body, 0, 2000)
+        && hasRateLimit();
       allow update, delete: if isSignedIn() && (
-        (getUserData().tipo in ['admin', 'staff'] && getUserData().establishment_id == resource.data.establishment_id) ||
+        (isAdminOrStaff(resource.data.establishment_id)) ||
         (resource.data.user_id == request.auth.uid) ||
         (resource.data.professional_id == request.auth.uid)
-      );
+      ) && hasRateLimit();
     }
 
-    // Regras para a coleção de Clientes Manuais
+    // ============================================================
+    // 6. CLIENTES MANUAIS — Validação Server-Side
+    // ============================================================
+
     match /manual_clients/{clientId} {
-      allow read: if isSignedIn() && 
-        getUserData().tipo in ['admin', 'staff'] && 
-        getUserData().establishment_id == resource.data.establishment_id;
-      allow create: if isSignedIn() && 
-        getUserData().tipo in ['admin', 'staff'] && 
-        getUserData().establishment_id == request.resource.data.establishment_id;
-      allow update, delete: if isSignedIn() && 
-        getUserData().tipo in ['admin', 'staff'] && 
-        getUserData().establishment_id == resource.data.establishment_id;
+      allow read: if isAdminOrStaff(resource.data.establishment_id);
+      allow create: if isAdminOrStaff(request.resource.data.establishment_id)
+        && stringLen(request.resource.data.nome, 2, 120)
+        && (
+             request.resource.data.telefone == null ||
+             stringLen(request.resource.data.telefone, 7, 30)
+           )
+        && (
+             request.resource.data.email == null ||
+             stringLen(request.resource.data.email, 3, 150)
+           )
+        && hasRateLimit();
+      allow update, delete: if isAdminOrStaff(resource.data.establishment_id)
+        && hasRateLimit();
     }
 
-    // Regras para a coleção de Transações (Financeiro)
+    // ============================================================
+    // 7. TRANSAÇÕES (Financeiro) — Validação Server-Side
+    // ============================================================
+
     match /transactions/{txId} {
-      allow read: if isSignedIn() && 
-        getUserData().tipo in ['admin', 'staff'] && 
-        getUserData().establishment_id == resource.data.establishment_id;
-      allow create: if isSignedIn() && 
-        getUserData().tipo in ['admin', 'staff'] && 
-        getUserData().establishment_id == request.resource.data.establishment_id;
-      allow update, delete: if isSignedIn() && 
-        getUserData().tipo in ['admin', 'staff'] && 
-        getUserData().establishment_id == resource.data.establishment_id;
+      allow read: if isAdminOrStaff(resource.data.establishment_id);
+      allow create: if isAdminOrStaff(request.resource.data.establishment_id)
+        && request.resource.data.amount is number
+        && request.resource.data.amount >= -999999.99   // reembolso pode ser negativo, mas limitado
+        && request.resource.data.amount <= 999999.99
+        && (
+             request.resource.data.description == null ||
+             stringLen(request.resource.data.description, 0, 500)
+           )
+        && isTimestamp(request.resource.data.createdAt)
+        && hasRateLimit();
+      allow update, delete: if isAdminOrStaff(resource.data.establishment_id)
+        && hasRateLimit();
     }
 
-    // Regras para a coleção de Despesas
+    // ============================================================
+    // 8. DESPESAS — Validação Server-Side
+    // ============================================================
+
     match /expenses/{expId} {
-      allow read: if isSignedIn() && 
-        getUserData().tipo in ['admin', 'staff'] && 
-        getUserData().establishment_id == resource.data.establishment_id;
-      allow create: if isSignedIn() && 
-        getUserData().tipo in ['admin', 'staff'] && 
-        getUserData().establishment_id == request.resource.data.establishment_id;
-      allow update, delete: if isSignedIn() && 
-        getUserData().tipo in ['admin', 'staff'] && 
-        getUserData().establishment_id == resource.data.establishment_id;
+      allow read: if isAdminOrStaff(resource.data.establishment_id);
+      allow create: if isAdminOrStaff(request.resource.data.establishment_id)
+        && isNonNegativeNumber(request.resource.data.value)
+        && request.resource.data.value <= 999999.99
+        && stringLen(request.resource.data.description, 2, 500)
+        && hasRateLimit();
+      allow update, delete: if isAdminOrStaff(resource.data.establishment_id)
+        && hasRateLimit();
     }
 
-    // Regras para a coleção de Lembretes
+    // ============================================================
+    // 9. LEMBRETES — Validação Server-Side
+    // ============================================================
+
     match /reminders/{remId} {
-      allow read: if isSignedIn() && 
-        getUserData().tipo in ['admin', 'staff'] && 
-        getUserData().establishment_id == resource.data.establishment_id;
-      allow create: if isSignedIn() && 
-        getUserData().tipo in ['admin', 'staff'] && 
-        getUserData().establishment_id == request.resource.data.establishment_id;
-      allow update, delete: if isSignedIn() && 
-        getUserData().tipo in ['admin', 'staff'] && 
-        getUserData().establishment_id == resource.data.establishment_id;
+      allow read: if isAdminOrStaff(resource.data.establishment_id);
+      allow create: if isAdminOrStaff(request.resource.data.establishment_id)
+        && stringLen(request.resource.data.message, 0, 10000)
+        && hasRateLimit();
+      allow update, delete: if isAdminOrStaff(resource.data.establishment_id);
     }
 
-    // Regras para a coleção de Modelos de Anamnese
+    // ============================================================
+    // 10. MODELOS DE ANAMNESE
+    // ============================================================
+
     match /anamnesis_templates/{templateId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && 
-        getUserData().tipo in ['admin', 'staff'] && 
-        getUserData().establishment_id == request.resource.data.establishment_id;
-      allow update, delete: if isSignedIn() && 
-        getUserData().tipo in ['admin', 'staff'] && 
-        getUserData().establishment_id == resource.data.establishment_id;
+      allow read: if isAdminOrStaff(resource.data.establishment_id);
+      allow create: if isAdminOrStaff(request.resource.data.establishment_id)
+        && stringLen(request.resource.data.name, 2, 120)
+        && hasRateLimit();
+      allow update, delete: if isAdminOrStaff(resource.data.establishment_id)
+        && hasRateLimit();
     }
 
-    // Regras para a coleção de Respostas de Anamnese
+    // ============================================================
+    // 11. RESPOSTAS DE ANAMNESE — Dados extremamente sensíveis.
+    //     Validação: tamanho máximo de payload para não DoS
+    // ============================================================
+
     match /anamnesis_responses/{responseId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && request.resource.data.establishment_id != null;
-      allow update, delete: if isSignedIn() && (
-        (getUserData().tipo in ['admin', 'staff'] && getUserData().establishment_id == resource.data.establishment_id) ||
+      allow read: if isSignedIn() && (
+        (isAdminOrStaff(resource.data.establishment_id)) ||
         (resource.data.user_id == request.auth.uid) ||
         (resource.data.customer_id == request.auth.uid)
       );
+      allow create: if isSignedIn()
+        && request.resource.data.establishment_id != null
+        && request.resource.data.establishment_id.size() <= 120
+        && (
+             (isAdminOrStaff(request.resource.data.establishment_id)) ||
+             (request.resource.data.user_id == request.auth.uid) ||
+             (request.resource.data.customer_id == request.auth.uid)
+           )
+        && hasRateLimit();
+
+      allow update, delete: if isSignedIn() && (
+        (isAdminOrStaff(resource.data.establishment_id)) ||
+        (resource.data.user_id == request.auth.uid) ||
+        (resource.data.customer_id == request.auth.uid)
+      ) && hasRateLimit();
     }
 
-    // Regras para a coleção de Agendamentos
-    match /appointments/{appId} {
-      // Leitura: 
-      // 1. Admins/staff leem todos do seu estabelecimento
-      // 2. Clientes leem seus próprios
-      // 3. Todos logados podem ler para verificar disponibilidade
-      allow read: if isSignedIn();
+    // ============================================================
+    // 12. AGENDAMENTOS — CORREÇÃO CRÍTICA LGPD + VALIDAÇÃO (V1)
+    //     Validações:
+    //       - total_duration ≤ 720 min (12h)
+    //       - total_price ≤ 99999.99 (sem negativo via update)
+    //       - services ≤ 20 itens por combo (DoS)
+    //       - start_time / end_time Timestamps válidos
+    //       - user_id preenchido
+    // ============================================================
 
-      // Escrita:
-      // 1. Clientes criam agendamentos para SI MESMOS
-      // 2. Admins/staff criam/editam/cancelam no seu próprio estabelecimento
-      allow create: if isSignedIn() && 
-        request.resource.data.establishment_id != null && (
-          request.resource.data.user_id == request.auth.uid || 
-          (getUserData().tipo in ['admin', 'staff'] && 
-           getUserData().establishment_id == request.resource.data.establishment_id)
-        );
-      allow update, delete: if isSignedIn() && (
-        (getUserData().tipo in ['admin', 'staff'] && getUserData().establishment_id == resource.data.establishment_id) ||
-        (resource.data.user_id == request.auth.uid)
+    match /appointments/{appId} {
+      allow read: if isSignedIn() && (
+        isAdminOrStaff(resource.data.establishment_id) ||
+        isOwnerAppointment()
       );
+
+      allow create: if isSignedIn()
+        && request.resource.data.establishment_id != null
+        && (
+             isRequestOwnerAppointment() ||
+             isAdminOrStaff(request.resource.data.establishment_id)
+           )
+        && isTimestamp(request.resource.data.start_time)
+        && isTimestamp(request.resource.data.end_time)
+        && isNonNegativeNumber(request.resource.data.total_duration)
+        && request.resource.data.total_duration <= 720
+        && isNonNegativeNumber(request.resource.data.total_price)
+        && request.resource.data.total_price <= 99999.99
+        && (
+             request.resource.data.user_nome == null ||
+             stringLen(request.resource.data.user_nome, 2, 120)
+           )
+        && (
+             request.resource.data.user_telefone == null ||
+             stringLen(request.resource.data.user_telefone, 7, 30)
+           )
+        && (
+             request.resource.data.services is list &&
+             request.resource.data.services.size() <= 20
+           )
+        && hasRateLimit();
+
+      allow update: if isSignedIn() && (
+        isAdminOrStaff(resource.data.establishment_id) ||
+        isOwnerAppointment()
+      ) && (
+        request.resource.data.total_duration <= 720
+      ) && (
+        request.resource.data.total_price >= 0 &&
+        request.resource.data.total_price <= 99999.99
+      ) && (
+        request.resource.data.services is list &&
+        request.resource.data.services.size() <= 20
+      ) && hasRateLimit();
+
+      allow delete: if isSignedIn() && (
+        isAdminOrStaff(resource.data.establishment_id) ||
+        isOwnerAppointment()
+      ) && hasRateLimit();
     }
   }
 }

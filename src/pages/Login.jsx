@@ -3,6 +3,28 @@ import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { Chrome, Mail, Lock, User, ArrowLeft, Sparkles, Store, MapPin, Phone } from 'lucide-react';
 import { maskPhone, validatePhone } from '../utils/formatters';
+import { LgpdFooterLinks } from '../components/LgpdConsent';
+
+/**
+ * Wrapper que adiciona um rodapé LGPD ABAIXO do card principal de login/cadastro.
+ * Evita duplicar o footer em cada if/else da tela.
+ */
+function LoginFooter() {
+  return (
+    <footer className="mt-10 mb-6 w-full px-4 sm:px-6">
+      <div className="mx-auto max-w-xl space-y-3 text-center">
+        <div className="text-[10px] font-black uppercase tracking-[0.25em] text-pink-300">
+          © {new Date().getFullYear()} Musa Agenda · Todos os direitos reservados
+        </div>
+        <LgpdFooterLinks size="sm" />
+        <div className="text-[11px] font-medium text-pink-400/70 leading-relaxed">
+          Ao criar uma conta, você concorda com nossa Política de Privacidade e Termos de Uso.
+          Seus dados são protegidos pela LGPD (Lei 13.709/2018).
+        </div>
+      </div>
+    </footer>
+  );
+}
 
 export default function Login() {
   const { user, loginWithGoogle, signInWithEmail, signUpWithEmail, resetPassword, changePassword } = useAuth();
@@ -171,6 +193,7 @@ export default function Login() {
             Tecnologia para beleza e bem-estar
           </p>
         </div>
+        <LoginFooter />
       </div>
     );
   }
@@ -389,6 +412,7 @@ export default function Login() {
           )}
         </div>
       </div>
+      <LoginFooter />
     </div>
   );
 }

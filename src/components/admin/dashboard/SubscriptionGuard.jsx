@@ -1,13 +1,58 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Lock, Crown, Zap, Sparkles, Check, ArrowRight, CreditCard, AlertCircle } from 'lucide-react';
+import { Lock, Crown, Zap, Sparkles, Check, ArrowRight, CreditCard, AlertCircle, Gift, Clock } from 'lucide-react';
 import { subscriptionService } from '../../../services/subscriptionService';
 
 const SubscriptionGuard = ({ establishment, setView, children }) => {
   const status = subscriptionService.checkSubscriptionStatus(establishment);
 
   if (status.active) {
-    // Se estiver em trial, mostramos um banner discreto no topo (opcional, lidaremos no Dashboard)
+    // Quando Trial estiver ATIVO, mostramos um pill fixo (sticky) com contagem regressiva em
+    // QUALQUER tela do dashboard, não dependendo da view que o usuário está.
+    if (status.status === 'trial' && status.daysRemaining != null) {
+      const isUrgent = status.daysRemaining <= 3;
+      return (
+        <>
+          <motion.div
+            initial={{ y: -20, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            transition={{ delay: 0.3 }}
+            className={`fixed z-[90] top-3 right-3 sm:top-4 sm:right-4 flex items-center gap-2.5 px-4 py-2.5 rounded-full shadow-lg border-2 backdrop-blur-md ${
+              isUrgent
+                ? 'bg-red-50/95 border-red-200 text-red-700 shadow-red-200/50 animate-pulse'
+                : 'bg-white/95 border-pink-100 text-pink-700 shadow-pink-100/50'
+            }`}
+          >
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${isUrgent ? 'bg-red-100' : 'bg-pink-100'}`}>
+              {isUrgent ? <Clock size={16} /> : <Gift size={16} />}
+            </div>
+            <div className="flex flex-col leading-tight">
+              <span className="text-[10px] font-black uppercase tracking-[0.15em] opacity-80">
+                Teste Grátis Profissional
+              </span>
+              <span className="text-sm font-black">
+                {status.daysRemaining > 0
+                  ? `${status.daysRemaining} dia${status.daysRemaining === 1 ? '' : 's'} restante${status.daysRemaining === 1 ? '' : 's'}`
+                  : 'Últimas horas!'}
+              </span>
+            </div>
+            {setView && (
+              <button
+                onClick={() => setView('planos_assinatura')}
+                className={`ml-2 px-3.5 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 ${
+                  isUrgent
+                    ? 'bg-red-600 text-white hover:bg-red-700'
+                    : 'bg-pink-600 text-white hover:bg-pink-700'
+                }`}
+              >
+                Assinar
+              </button>
+            )}
+          </motion.div>
+          {children}
+        </>
+      );
+    }
     return children;
   }
 

@@ -1,21 +1,68 @@
-import { useEffect, useState } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { Sparkles, ArrowRight, Store, Star, Trash2, Bell } from 'lucide-react';
 import Login from './pages/Login';
-import ClientDashboard from './pages/ClientDashboard';
-import ClientProfilePage from './pages/ClientProfilePage';
-import ClientAppointmentsPage from './pages/ClientAppointmentsPage';
-import BookingPage from './pages/BookingPage';
-import BookingSchedulePage from './pages/BookingSchedulePage';
-import BookingConfirmationPage from './pages/BookingConfirmationPage';
-import ClientAnamnesisPage from './pages/ClientAnamnesisPage';
-import AdminDashboard from './pages/AdminDashboard';
+
+/* -------------- LAZY LOADING (A4 — Code Splitting por Rota) --------------
+   - Login = EAGER (tela de entrada sempre necessária).
+   - Todas as outras = LAZY (baixadas apenas quando o usuário navega).
+   - O AdminDashboard (7000 linhas, ~60% do bundle) é o chunk com maior impacto.
+----------------------------------------------------------------------------- */
+const ClientDashboard = lazy(() => import('./pages/ClientDashboard'));
+const ClientProfilePage = lazy(() => import('./pages/ClientProfilePage'));
+const ClientAppointmentsPage = lazy(() => import('./pages/ClientAppointmentsPage'));
+const BookingPage = lazy(() => import('./pages/BookingPage'));
+const BookingSchedulePage = lazy(() => import('./pages/BookingSchedulePage'));
+const BookingConfirmationPage = lazy(() => import('./pages/BookingConfirmationPage'));
+const ClientAnamnesisPage = lazy(() => import('./pages/ClientAnamnesisPage'));
+const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
+
 import Layout from './components/Layout';
-import { db } from './services/firebase';
-import { deleteField, doc, onSnapshot, updateDoc } from 'firebase/firestore';
+import ProtectedRoute from './components/ProtectedRoute';
+import LgpdConsent from './components/LgpdConsent';
+import { db, updateUserDoc } from './services/firebase';
+import { deleteField, doc, onSnapshot } from 'firebase/firestore';
 import { getEstablishmentBySlug, sanitizeSlug } from './services/establishmentService';
 import { requestNotificationPermission, onMessageListener } from './services/notificationService';
+
+/**
+ * Fallback visual padrão usado pelo <Suspense> enquanto baixa o chunk da rota.
+ * Alinhado ao tema rosa do Musa (evita flicker branco/estranho na navegação).
+ */
+function RouteSuspenseFallback() {
+  return (
+    <div className="min-h-[85vh] w-full flex items-center justify-center bg-gradient-to-b from-pink-50/40 via-white to-white">
+      <div className="flex flex-col items-center gap-4 text-pink-600">
+        <div className="h-14 w-14 rounded-3xl bg-pink-100 flex items-center justify-center shadow-sm border border-pink-200">
+          <Sparkles size={26} className="animate-pulse" />
+        </div>
+        <div className="flex flex-col items-center gap-1">
+          <span className="text-[10px] font-black uppercase tracking-[0.25em] text-pink-500">
+            Musa Agenda
+          </span>
+          <span className="text-sm font-bold text-slate-600">
+            Carregando…
+          </span>
+        </div>
+        <div className="w-56 h-1.5 overflow-hidden rounded-full bg-pink-100">
+          <div className="h-full w-1/2 bg-pink-500 rounded-full animate-[shimmer_1.1s_ease-in-out_infinite]"
+               style={{
+                 background: 'linear-gradient(90deg, #ec4899, #f472b6, #ec4899)',
+                 backgroundSize: '200% 100%',
+                 animation: 'loadingShimmer 1.1s ease-in-out infinite',
+               }} />
+        </div>
+        <style>{`
+          @keyframes loadingShimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+          }
+        `}</style>
+      </div>
+    </div>
+  );
+}
 
 function NotificationHandler() {
   const { user } = useAuth();
@@ -79,18 +126,6 @@ function NotificationHandler() {
       </div>
     </div>
   );
-}
-
-function PrivateRoute({ children, adminOnly = false }) {
-  const { user, loading } = useAuth();
-
-  if (loading) return <div className="min-h-screen flex items-center justify-center">Carregando...</div>;
-  if (!user) return <Navigate to="/login" />;
-  
-  // Se for adminOnly, permite tanto 'admin' quanto 'staff'
-  if (adminOnly && user.tipo !== 'admin' && user.tipo !== 'staff') return <Navigate to="/" />;
-
-  return children;
 }
 
 function RootRedirect() {
@@ -167,7 +202,7 @@ function ClientHub() {
     if (!user?.uid || !est?.id) return;
     setBusyId(est.id);
     try {
-      await updateDoc(doc(db, 'users', user.uid), {
+      await updateUserDoc(user.uid, {
         [`saved_establishments.${est.id}.favorite`]: !Boolean(est.favorite)
       });
     } finally {
@@ -188,7 +223,7 @@ function ClientHub() {
       if ((lastSlug || '') === (est.slug || '')) {
         updates.last_establishment_slug = deleteField();
       }
-      await updateDoc(doc(db, 'users', user.uid), updates);
+      await updateUserDoc(user.uid, updates);
     } finally {
       setBusyId('');
     }
@@ -312,36 +347,31 @@ function ClientHub() {
   );
 }
 
-function AdminRoute({ children }) {
-  const { user, loading } = useAuth();
-  const location = useLocation();
-  const [isRedirecting, setIsRedirecting] = useState(false);
-
-  if (loading) return <div className="min-h-screen flex items-center justify-center">Carregando...</div>;
-  
-  if (!user || (user.tipo !== 'admin' && user.tipo !== 'staff')) {
-    if (isRedirecting) return null;
-    console.log("AdminRoute: Bloqueando acesso. User:", user?.uid, "Tipo:", user?.tipo);
-    return <Navigate to="/login" state={{ from: location }} replace />;
-  }
-
-  return children;
-}
-
 function App() {
   return (
-    <AuthProvider>
+    <>
+      <LgpdConsent />
+      <AuthProvider>
       <NotificationHandler />
       <Router>
-        <Routes>
+        <Suspense fallback={<RouteSuspenseFallback />}>
+          <Routes>
           <Route path="/login" element={<Login />} />
-          
+
           <Route path="/" element={
-            <PrivateRoute>
+            <ProtectedRoute allowedRoles={['any']}>
               <Layout>
                 <RootRedirect />
               </Layout>
-            </PrivateRoute>
+            </ProtectedRoute>
+          } />
+
+          <Route path="/client" element={
+            <ProtectedRoute allowedRoles={['cliente', 'client', 'any']}>
+              <Layout>
+                <ClientHub />
+              </Layout>
+            </ProtectedRoute>
           } />
 
           <Route path="/:slug/agendar" element={
@@ -357,48 +387,56 @@ function App() {
           } />
 
           <Route path="/:slug/agendar/confirmacao" element={
-            <PrivateRoute>
+            <ProtectedRoute allowedRoles={['any']}>
               <Layout>
                 <BookingConfirmationPage />
               </Layout>
-            </PrivateRoute>
+            </ProtectedRoute>
           } />
 
           <Route path="/:slug/agenda" element={
-            <Layout>
-              <ClientAppointmentsPage />
-            </Layout>
+            <ProtectedRoute allowedRoles={['any']}>
+              <Layout>
+                <ClientAppointmentsPage />
+              </Layout>
+            </ProtectedRoute>
           } />
 
           <Route path="/:slug/anamnese/:appointmentId" element={
-            <Layout>
-              <ClientAnamnesisPage />
-            </Layout>
+            <ProtectedRoute allowedRoles={['any']}>
+              <Layout>
+                <ClientAnamnesisPage />
+              </Layout>
+            </ProtectedRoute>
           } />
 
           <Route path="/:slug/perfil" element={
-            <Layout>
-              <ClientProfilePage />
-            </Layout>
+            <ProtectedRoute allowedRoles={['any']}>
+              <Layout>
+                <ClientProfilePage />
+              </Layout>
+            </ProtectedRoute>
           } />
 
           <Route path="/admin" element={
-            <AdminRoute>
+            <ProtectedRoute allowedRoles={['admin', 'staff']} unauthorizedTo="/client">
               <Layout>
                 <AdminDashboard />
               </Layout>
-            </AdminRoute>
+            </ProtectedRoute>
           } />
 
-          {/* Rota multi-tenant dinâmica baseada no slug */}
+          {/* Rota multi-tenant dinâmica baseada no slug (Cliente logado ou não, pode ver dashboard público da clínica) */}
           <Route path="/:slug" element={
             <Layout>
               <ClientDashboard />
             </Layout>
           } />
-        </Routes>
+          </Routes>
+        </Suspense>
       </Router>
     </AuthProvider>
+    </>
   );
 }
 

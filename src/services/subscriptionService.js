@@ -1,4 +1,4 @@
-import { db } from './firebase';
+import { db, callFunction } from './firebase';
 import { doc, updateDoc, Timestamp } from 'firebase/firestore';
 
 /**
@@ -146,18 +146,14 @@ export const subscriptionService = {
 
   /**
    * Cancela a assinatura atual (Mantém acesso até o fim do período pago)
+   * ✅ SEGURANÇA: Não pode ser client-side devido a regra firestore.rules `subscriptionFieldsUnchanged()`.
+   *             Delega para Cloud Function onCall `cancelSubscriptionCallable` (Admin SDK).
    */
   async cancelSubscription(establishmentId) {
-    const estRef = doc(db, 'establishments', establishmentId);
-    
-    // Atualizamos apenas o status para 'cancelled'. 
-    // A lógica de verificação (checkSubscriptionStatus) cuidará de manter o acesso ativo
-    // enquanto a data 'current_period_end' for no futuro.
-    await updateDoc(estRef, {
-      'subscription.status': 'cancelled',
-      'subscription.cancelled_at': Timestamp.fromDate(new Date())
-      // IMPORTANTE: NÃO alteramos o campo 'plan' aqui, apenas o status.
-      // O plano só volta para 'bronze' fisicamente quando o período expirar de fato.
-    });
+    const resp = await callFunction('cancelSubscriptionCallable', { establishmentId });
+    if (!resp?.data?.ok) {
+      throw new Error((resp?.data?.message) || "Falha ao cancelar assinatura.");
+    }
+    return resp.data;
   }
 };

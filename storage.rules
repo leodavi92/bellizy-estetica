@@ -1,0 +1,88 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // ============================================================
+    // HELPERS — Sintaxe FIREBASE STORAGE RULES (não suporta lowercase(), get(), etc. — usamos matches() apenas.
+    // ============================================================
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function isImage() {
+      // Firebase Storage Rules não suporta operação tão dinâmica, mas content-type é confiável se
+      // vem do cliente. Em produção o upload direto via SDK.
+      return request.resource.contentType.matches('image/.*') ||
+             request.resource.contentType == 'application/pdf';
+    }
+
+    function isValidSize(maxMB) {
+      return request.resource.size < maxMB * 1024 * 1024;
+    }
+
+    function hasValidExt() {
+      // Lista bruta: extensão com matches() — Storage suporta glob patterns — suporta pipe-like
+      // Usamos um regex compatível com a sintaxe RE2.
+      // Nomes em lowercase são garantidos no upload.
+      return request.resource.name.matches('.*\\.(jpg|jpeg|png|webp|gif|bmp|svg|pdf)$') ||
+             request.resource.name.matches('.*\\.(JPG|JPEG|PNG|WEBP|GIF|BMP|SVG|PDF)$');
+    }
+
+    // ============================================================
+    // UPLOADS POR ESTABELECIMENTO: (profissionais, serviços, estabelecimento)
+    //   Path: /establishments/{establishmentId}/...
+    // Leitura: pública (minisite precisa de imagens públicas)
+    // Escrita: Qualquer usuário autenticado (não podemos cross user establish_id como
+    //      cross-session atrelado ao auth no storage. Cross esta mais seguro
+    //      é aceitável para imagens públicas).
+    //      Se quiser 100% só admin, usar custom claims no futuro.
+    // ============================================================
+    match /establishments/{establishmentId}/{allPaths=**} {
+      allow read: if true;
+
+      allow write: if
+        isSignedIn() &&
+        isImage() &&
+        hasValidExt() &&
+        isValidSize(10);
+    }
+
+    // ============================================================
+    // AVATARES / FOTOS DE USUÁRIOS (clientes e profissionais)
+    //   Path: /users/{userId}/...
+    // ============================================================
+    match /users/{userId}/{allPaths=**} {
+      allow read: if true;
+
+      allow write: if
+        isOwner(userId) &&
+        isImage() &&
+        hasValidExt() &&
+        isValidSize(5);
+    }
+
+    // ============================================================
+    // ANAMNESE / EXAMES / DOCUMENTOS SENSÍVEIS
+    //   Path: /private/{establishmentId}/...
+    //   Nesta fase: 100% bloqueado (upload não vamos manter tudo fechado no escopo do
+    //   Não há ainda necessidade de documento sensível a essa fase do MVP, e validação
+    //   via cross de dados. Isso aqui fica pronto para ser aberto com
+    //   estrutura correta de claims custom.
+    // ============================================================
+    match /private/{establishmentId}/{allPaths=**} {
+      allow read, write: if false;
+    }
+
+    // ============================================================
+    // BLOQUEIO PADRÃO — TUDO o que não combinar é NEGADO.
+    // ============================================================
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

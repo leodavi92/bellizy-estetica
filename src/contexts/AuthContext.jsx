@@ -114,6 +114,7 @@ export function AuthProvider({ children }) {
                 first_service: false,
                 policy: false
               },
+              profile_completed: false,
               createdAt: Timestamp.now()
             })
           );
@@ -128,7 +129,10 @@ export function AuthProvider({ children }) {
           professional_id: professionalId,
           telefone: '',
           photoURL: result.user.photoURL,
-          createdAt: new Date().toISOString()
+          createdAt: new Date().toISOString(),
+          last_write_ts: Timestamp.now(),
+          aceitou_lgpd_em: new Date().toISOString(),
+          aceitou_lgpd_version: 1,
         };
         
         await setDoc(userRef, userData);
@@ -145,6 +149,11 @@ export function AuthProvider({ children }) {
               nome: '',
               slug: uniqueSlug,
               logo_url: result.user.photoURL || '',
+              subscription: {
+                status: 'trial',
+                trial_ends_at: Timestamp.fromDate(new Date(Date.now() + 15 * 24 * 60 * 60 * 1000)),
+                plan: 'silver'
+              },
               setup_steps: {
                 info_basica: false,
                 logo: !!result.user.photoURL,
@@ -152,13 +161,15 @@ export function AuthProvider({ children }) {
                 first_service: false,
                 policy: false
               },
+              profile_completed: false,
               createdAt: Timestamp.now()
             })
           );
           
           const updateData = {
             tipo: 'admin',
-            establishment_id: estRef.id
+            establishment_id: estRef.id,
+            last_write_ts: Timestamp.now()
           };
           
           await updateDoc(userRef, updateData);
@@ -216,6 +227,7 @@ export function AuthProvider({ children }) {
               first_service: false,
               policy: false
             },
+            profile_completed: false,
             createdAt: Timestamp.now()
           })
         );
@@ -229,6 +241,9 @@ export function AuthProvider({ children }) {
         establishment_id: establishmentId,
         professional_id: professionalId,
         createdAt: new Date().toISOString(),
+        last_write_ts: Timestamp.now(),
+        aceitou_lgpd_em: new Date().toISOString(),
+        aceitou_lgpd_version: 1,
         ...extraData
       };
       
@@ -274,6 +289,7 @@ export function AuthProvider({ children }) {
                   first_service: false,
                   policy: false
                 },
+                profile_completed: false,
                 createdAt: Timestamp.now()
               })
             );

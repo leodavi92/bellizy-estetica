@@ -157,13 +157,38 @@ export const recordAppointmentTransaction = async (appointment, establishmentIdO
 export const getTransactions = async (establishmentId, startDate, endDate) => {
   try {
     console.log("Buscando transações para:", establishmentId);
-    
-    const q = query(
+
+    // C6: Filtro de data DIRETO NA QUERY (não mais full-scan de todo o histórico).
+    // Usa 'createdAt' que é o campo padrão de lançamento no financeiro.
+    // Filtro em memória abaixo é mantido apenas como fallback de compatibilidade.
+    let q = query(
       collection(db, "transactions"),
-      where("establishment_id", "==", establishmentId)
+      where("establishment_id", "==", establishmentId),
+      where("createdAt", ">=", Timestamp.fromDate(startDate)),
+      where("createdAt", "<=", Timestamp.fromDate(endDate))
     );
 
-    const snapshot = await getDocs(q);
+    let snapshot;
+    try {
+      snapshot = await getDocs(q);
+    } catch (queryError) {
+      // Fallback: se o índice composto ainda não foi criado,
+      // tentamos a query sem o filtro de data (apenas para não quebrar a view)
+      if (queryError.code === 'failed-precondition') {
+        console.warn(
+          "[financeService] Índice composto (establishment_id + createdAt) ainda não criado. " +
+          "Usando fallback (sem filtro na query). Execute: firebase deploy --only firestore:indexes"
+        );
+        q = query(
+          collection(db, "transactions"),
+          where("establishment_id", "==", establishmentId)
+        );
+        snapshot = await getDocs(q);
+      } else {
+        throw queryError;
+      }
+    }
+
     console.log(`Total de transações encontradas no banco para esta estética: ${snapshot.size}`);
     
     let transactions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));

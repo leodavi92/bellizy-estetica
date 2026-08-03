@@ -12,8 +12,8 @@ import {
   ShieldCheck,
   Camera
 } from 'lucide-react';
-import { db } from '../services/firebase';
-import { doc, updateDoc } from 'firebase/firestore';
+import { db, updateUserDoc } from '../services/firebase';
+import { doc } from 'firebase/firestore';
 import { maskPhone, validatePhone } from '../utils/formatters';
 
 const AVATARS = [
@@ -65,8 +65,7 @@ export default function ClientProfilePage() {
 
     if (user?.uid) {
       try {
-        const userRef = doc(db, 'users', user.uid);
-        await updateDoc(userRef, { 
+        await updateUserDoc(user.uid, { 
           photoURL: avatar.url,
           avatar_id: avatar.id 
         });
@@ -90,7 +89,7 @@ export default function ClientProfilePage() {
 
     try {
       setLoading(true);
-      const userRef = doc(db, 'users', user.uid);      await updateDoc(userRef, formData);
+      await updateUserDoc(user.uid, formData);
       
       if (setUser) {
         setUser(prev => ({ ...prev, ...formData }));

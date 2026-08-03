@@ -22,335 +22,96 @@ import {
 } from 'date-fns';
 import { createInternalNotification } from './notificationService';
 import { enUS } from 'date-fns/locale';
+import {
+  calculateAvailableSlotsEngine,
+  getBusySlotsFromAppointment,
+  getSafeDate,
+  normalizeProfId,
+  normalizeStatus as engineNormalizeStatus,
+  APPOINTMENT_STATUS,
+  BLOCKED_STATUSES,
+} from './appointmentEngine';
 
-/**
- * CONSTANTES DE STATUS PADRONIZADAS (O MOTOR DO SISTEMA)
- */
-export const APPOINTMENT_STATUS = {
-  SCHEDULED: 'scheduled', // Agendado e ativo
-  CONFIRMED: 'confirmed', // Confirmado (opcional se houver fluxo de aprovação)
-  COMPLETED: 'completed', // Finalizado
-  CANCELLED: 'cancelled'  // Cancelado
-};
-
-/**
- * Status que bloqueiam a agenda para evitar conflitos.
- * Qualquer agendamento que não seja 'cancelled' deve ser considerado um bloqueio.
- */
-export const BLOCKED_STATUSES = [
-  APPOINTMENT_STATUS.SCHEDULED,
-  APPOINTMENT_STATUS.CONFIRMED,
-  APPOINTMENT_STATUS.COMPLETED, // Mesmo finalizado, o slot de tempo continua ocupado no passado
-  'ativo', 'Ativo', 'confirmado', 'Confirmado', 'scheduled', 'Scheduled' // Legados para compatibilidade durante transição
-];
-
-const getSafeDate = (val) => {
-  if (!val) return null;
-  if (val.toDate && typeof val.toDate === 'function') return val.toDate();
-  const d = new Date(val);
-  return isNaN(d.getTime()) ? null : d;
-};
-
-/**
- * Normaliza o ID do profissional para evitar problemas com strings/null/undefined
- * REGRA 3: Owner é profissional comum.
- */
-const normalizeProfId = (id) => {
-  if (!id || id === 'null' || id === 'undefined' || id === '') return 'owner';
-  return String(id).trim();
-};
-
-/**
- * Normaliza o status de um agendamento para o padrão do sistema.
- */
-export const normalizeStatus = (status) => {
-  if (!status) return APPOINTMENT_STATUS.SCHEDULED;
-  const s = String(status).toLowerCase().trim();
-  
-  if (['cancelled', 'cancelado'].includes(s)) return APPOINTMENT_STATUS.CANCELLED;
-  if (['completed', 'finalizado'].includes(s)) return APPOINTMENT_STATUS.COMPLETED;
-  if (['confirmed', 'confirmado'].includes(s)) return APPOINTMENT_STATUS.CONFIRMED;
-  
-  return APPOINTMENT_STATUS.SCHEDULED;
-};
-
-/**
- * Transforma um agendamento em uma lista de slots ocupados por profissional.
- * REGRA 4: Profissional por serviço.
- */
-const getBusySlotsFromAppointment = (appData) => {
-  const start = getSafeDate(appData.start_time) || getSafeDate(appData.data_hora);
-  if (!start) return [];
-
-  const slots = [];
-  const services = appData.services && Array.isArray(appData.services) ? appData.services : [];
-
-  if (services.length > 0) {
-    let currentOffset = 0;
-    services.forEach(s => {
-      const sDuration = Number(s.duracao || s.duration || 30);
-      const sStart = addMinutes(start, currentOffset);
-      const sEnd = addMinutes(sStart, sDuration);
-      
-      const pId = normalizeProfId(s.professional_id || appData.professional_id);
-      
-      slots.push({
-        profId: pId,
-        start: sStart,
-        end: sEnd,
-        client: appData.user_nome || 'Cliente',
-        serviceName: s.nome || 'Serviço'
-      });
-      currentOffset += sDuration;
-    });
-  } else {
-    const dur = Number(appData.total_duration || appData.duration || 30);
-    const end = getSafeDate(appData.end_time) || addMinutes(start, dur);
-    slots.push({
-      profId: normalizeProfId(appData.professional_id),
-      start: start,
-      end: end,
-      client: appData.user_nome || 'Cliente',
-      serviceName: appData.service_nome || 'Serviço'
-    });
-  }
-  return slots;
-};
+// Re-exporta helpers para manter retrocompatibilidade com arquivos antigos
+// que importavam diretamente de appointmentService.
+export const normalizeStatus = engineNormalizeStatus;
+export { APPOINTMENT_STATUS, BLOCKED_STATUSES, getBusySlotsFromAppointment, normalizeProfId, getSafeDate };
 
 /**
  * MOTOR SEQUENCIAL: Calcula horários disponíveis para combos ou serviços individuais.
  * REGRA 1: Cadeia completa obrigatória.
  * REGRA 2: Simulação sequencial etapa por etapa.
+ *
+ * IMPLEMENTAÇÃO REFATORADA (C8.4):
+ *   - Parte I/O (Firestore) aqui: dados do estab, profissionais, apps do dia.
+ *   - Parte CPU (lógica) em `calculateAvailableSlotsEngine` (pura, 100% testada offline).
  */
 export const getMultiProfessionalAvailableSlots = async (date, serviceAssignments, establishmentId) => {
   if (!establishmentId || !serviceAssignments.length) return [];
-  
-  try {
-    // REORDENAMENTO POR PRIORIDADE (Opção B): Serviços com prioridade 1 vêm primeiro
-    const sortedAssignments = [...serviceAssignments].sort((a, b) => {
-      const prioA = a.service?.prioridade || 0;
-      const prioB = b.service?.prioridade || 0;
-      return prioB - prioA; // Maior prioridade primeiro
-    });
 
+  try {
     const establishmentRef = doc(db, 'establishments', establishmentId);
     const establishmentSnap = await getDoc(establishmentRef);
     if (!establishmentSnap.exists()) return [];
-    
+
     const establishment = establishmentSnap.data();
     const settings = establishment.settings || { horario_inicio: "08:00", horario_fim: "18:00" };
     const availabilityRules = establishment.availability_rules || null;
     const blockedSlots = establishment.blocked_slots || [];
-    const bufferTime = Number(settings.buffer_time || 0);
-    const slotInterval = Number(settings.slot_interval || 30);
-    
+
     const dayName = format(date, 'eeee', { locale: enUS }).toLowerCase();
     const dayConfig = availabilityRules ? availabilityRules[dayName] : null;
     if (dayConfig && !dayConfig.enabled) return [];
 
-    const startTimeStr = dayConfig ? dayConfig.start : settings.horario_inicio;
-    const endTimeStr = dayConfig ? dayConfig.end : settings.horario_fim;
-    const [startH, startM] = startTimeStr.split(':').map(Number);
-    const [endH, endM] = endTimeStr.split(':').map(Number);
-    
     const dayStart = startOfDay(date);
     const dayEnd = endOfDay(date);
-    const dateStr = format(date, 'yyyy-MM-dd');
-    const now = new Date();
 
-    // 1. Identificar todos os profissionais únicos envolvidos
     const uniqueProfessionalIds = [...new Set(serviceAssignments.map(a => normalizeProfId(a.professionalId)))];
-    
-    // 1.1 Buscar dados dos profissionais para checar horários de pausa
-    const professionalsData = {};
+    const professionalsBreakTime = {};
     for (const profId of uniqueProfessionalIds) {
       if (profId === 'owner') {
-        professionalsData['owner'] = establishment.settings?.owner_breaks || null;
+        professionalsBreakTime['owner'] = establishment.settings?.owner_breaks || null;
       } else {
         const profDoc = await getDoc(doc(db, "professionals", profId));
         if (profDoc.exists()) {
-          professionalsData[profId] = profDoc.data().break_time || null;
+          professionalsBreakTime[profId] = profDoc.data().break_time || null;
         }
       }
     }
-    
-    // 2. Buscar agendamentos do dia
+
+    // --- Busca agendamentos ATIVOS do dia com filtro no índice composto (C6)
     let allDayApps = [];
     try {
       const qAllDay = query(
         collection(db, "appointments"),
-        where("establishment_id", "==", establishmentId)
+        where("establishment_id", "==", establishmentId),
+        where("start_time", ">=", Timestamp.fromDate(dayStart)),
+        where("start_time", "<=", Timestamp.fromDate(dayEnd))
       );
-      
       const allDaySnap = await getDocs(qAllDay);
-      allDayApps = allDaySnap.docs
-        .map(doc => ({ id: doc.id, ...doc.data() }))
-        .filter(app => {
-          const start = getSafeDate(app.start_time) || getSafeDate(app.data_hora);
-          const isActive = BLOCKED_STATUSES.includes(app.status);
-          const isSameDay = start && start >= dayStart && start <= dayEnd;
-          return isActive && isSameDay;
-        });
+      allDayApps = allDaySnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     } catch (err) {
       if (err.code === 'permission-denied') {
-        console.warn("Acesso restrito aos agendamentos. Verificando disponibilidade via motor alternativo ou regras simplificadas.");
-        // Se o cliente não tem permissão para ler a coleção completa, o sistema deve 
-        // falhar graciosamente ou usar uma função do backend (Cloud Function) no futuro.
-        // Por enquanto, vamos retornar vazio para não travar a UI, mas o ideal é 
-        // que o admin tenha as regras de segurança permitindo a leitura de slots ocupados.
+        console.warn("Acesso restrito (non-staff). Validação final na createAppointment.");
+        allDayApps = [];
+      } else if (err.code === 'failed-precondition') {
+        console.warn("[appointmentService] Índice composto (establishment_id + start_time) não criado ainda.");
+        throw new Error("Sistema em atualização. Aguarde 1 minuto e recarregue. (Criando índices do banco de dados).");
       } else {
         throw err;
       }
     }
 
-    // 3. Organizar slots ocupados por profissional
-    const professionalBusySlots = {};
-    for (const profId of uniqueProfessionalIds) {
-      const busy = [];
-      allDayApps.forEach(app => {
-        const appSlots = getBusySlotsFromAppointment(app);
-        appSlots.forEach(slot => {
-          if (slot.profId === profId) {
-            busy.push(slot);
-          }
-        });
-      });
+    // --- Delega a lógica para a engine PURA (100% testada em vitest — C8)
+    const { slots } = calculateAvailableSlotsEngine(date, serviceAssignments, {
+      settings,
+      availabilityRules,
+      blockedSlots,
+      activeAppointments: allDayApps,
+      professionalsBreakTime,
+    });
 
-      // REGRA 10: Bloqueios manuais
-      blockedSlots.forEach(block => {
-        if (block.date === dateStr) {
-          const [bStartH, bStartM] = block.start_time.split(':').map(Number);
-          const [bEndH, bEndM] = block.end_time.split(':').map(Number);
-          const bStart = new Date(date); bStart.setHours(bStartH, bStartM, 0, 0);
-          const bEnd = new Date(date); bEnd.setHours(bEndH, bEndM, 0, 0);
-          busy.push({ start: bStart, end: bEnd, client: 'BLOQUEIO', serviceName: block.reason || 'Manual' });
-        }
-      });
-
-      // REGRA NOVA: Horário de Almoço / Pausas Fixas do Profissional
-      const breakTime = professionalsData[profId];
-      if (breakTime && breakTime.enabled && breakTime.start && breakTime.end) {
-        try {
-          const [bStartH, bStartM] = breakTime.start.split(':').map(Number);
-          const [bEndH, bEndM] = breakTime.end.split(':').map(Number);
-          
-          if (!isNaN(bStartH) && !isNaN(bEndH)) {
-            const bStart = new Date(date); bStart.setHours(bStartH, bStartM, 0, 0);
-            const bEnd = new Date(date); bEnd.setHours(bEndH, bEndM, 0, 0);
-            busy.push({ 
-              start: bStart, 
-              end: bEnd, 
-              client: 'PAUSA', 
-              serviceName: 'Horário de Almoço/Pausa',
-              isBreak: true
-            });
-          }
-        } catch (e) {
-          console.warn(`Erro ao processar intervalo do profissional ${profId}:`, e);
-        }
-      }
-
-      // REGRA NOVA 2: Horário de Almoço / Pausa Fixa Geral do Estabelecimento
-      if (dayConfig && dayConfig.break_enabled && dayConfig.break_start && dayConfig.break_end) {
-        try {
-          const [bStartH, bStartM] = dayConfig.break_start.split(':').map(Number);
-          const [bEndH, bEndM] = dayConfig.break_end.split(':').map(Number);
-          
-          if (!isNaN(bStartH) && !isNaN(bEndH)) {
-            const bStart = new Date(date); bStart.setHours(bStartH, bStartM, 0, 0);
-            const bEnd = new Date(date); bEnd.setHours(bEndH, bEndM, 0, 0);
-            busy.push({ 
-              start: bStart, 
-              end: bEnd, 
-              client: 'PAUSA', 
-              serviceName: 'Intervalo Geral (Almoço)',
-              isBreak: true // Flag para identificar que é uma pausa e não um agendamento
-            });
-          }
-        } catch (e) {
-          console.warn("Erro ao processar horário de intervalo:", e);
-        }
-      }
-
-      professionalBusySlots[profId] = busy;
-    }
-
-    let availableSlots = [];
-    let currentCursor = new Date(date);
-    currentCursor.setHours(startH, startM, 0, 0);
-    const dayLimit = new Date(date);
-    dayLimit.setHours(endH, endM, 0, 0);
-
-    // REGRA CRÍTICA: Seguir a grade configurada (30 em 30 min)
-    while (currentCursor < dayLimit) {
-      let isSequenceValid = true;
-      let sequenceTimeCursor = new Date(currentCursor);
-      let auditLogs = [];
-
-      // Percorre cada serviço do combo na ordem definida pela prioridade
-      for (let i = 0; i < sortedAssignments.length; i++) {
-        const assignment = sortedAssignments[i];
-        const nextAssignment = sortedAssignments[i + 1];
-        
-        const profId = normalizeProfId(assignment.professionalId);
-        const nextProfId = nextAssignment ? normalizeProfId(nextAssignment.professionalId) : null;
-        
-        const serviceDur = Number(assignment.service.duracao || 30);
-        const slotStart = new Date(sequenceTimeCursor);
-        const slotEnd = addMinutes(slotStart, serviceDur);
-
-        // REGRA 12: Fechamento do estabelecimento
-        if (slotEnd > dayLimit) {
-          isSequenceValid = false;
-          auditLogs.push(`INVALIDADO: Fim do serviço (${format(slotEnd, 'HH:mm')}) ultrapassa fechamento.`);
-          break;
-        }
-
-        // REGRA 9 & 7 & 8: Overlap e Buffer
-        const busySlots = professionalBusySlots[profId] || [];
-        const isSameProfNext = profId === nextProfId;
-        
-        const conflict = busySlots.find(busy => {
-          // REGRA 5: Se o próximo serviço for o mesmo profissional, não precisamos de buffer AGORA.
-          // REGRA NOVA: Intervalos/Pausas não geram buffer, são apenas bloqueios fixos.
-          const isBreak = !!busy.isBreak;
-          const effectiveBuffer = (isSameProfNext || isBreak) ? 0 : bufferTime;
-          
-          // Agendamentos EXISTENTES têm buffer no fim, exceto se for uma PAUSA/INTERVALO
-          const busyEndWithBuffer = isBreak ? busy.end : addMinutes(busy.end, bufferTime); 
-          
-          // O slot que estamos tentando encaixar só precisa de buffer se não for seguido pelo mesmo profissional
-          const slotEndWithBuffer = addMinutes(slotEnd, effectiveBuffer);
-          
-          // REGRA 8: Sobreposição rigorosa
-          const overlaps = slotStart < busyEndWithBuffer && slotEnd > busy.start;
-          return overlaps;
-        });
-
-        if (conflict || !isAfter(slotStart, now)) {
-          isSequenceValid = false;
-          if (conflict) {
-            auditLogs.push(`INVALIDADO: Profissional ${profId} ocupado das ${format(conflict.start, 'HH:mm')} às ${format(conflict.end, 'HH:mm')} (+buffer) por ${conflict.client}.`);
-          } else {
-            auditLogs.push(`INVALIDADO: Horário passado.`);
-          }
-          break;
-        }
-
-        sequenceTimeCursor = slotEnd;
-      }
-
-      if (isSequenceValid) {
-        availableSlots.push(new Date(currentCursor));
-      } else {
-        // REGRA 15: Logs de auditoria (opcional no console para debug)
-        // console.log(`[AUDIT] Slot ${format(currentCursor, 'HH:mm')}:`, auditLogs);
-      }
-      
-      currentCursor = addMinutes(currentCursor, slotInterval);
-    }
-
-    return availableSlots;
+    return slots;
   } catch (error) {
     console.error("ERRO NO MOTOR SEQUENCIAL:", error);
     return [];

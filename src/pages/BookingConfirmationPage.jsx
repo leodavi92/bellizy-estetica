@@ -151,12 +151,24 @@ export default function BookingConfirmationPage() {
       return;
     }
 
+    if (!isPolicyAccepted) {
+      alert("É necessário aceitar a Política de Privacidade e os Termos de Uso para confirmar seu agendamento (LGPD, Lei 13.709/2018).");
+      return;
+    }
+
     try {
       setLoading(true);
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
+
       const start = selectedDate;
       const dur = totalDuration;
+      
+      // Prova LGPD — capturada no momento exato do clique (ato jurídico)
+      const consentimento = {
+        version: 1,
+        accepted_at: new Date().toISOString(),
+        source: 'booking-confirmation-submit',
+        userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
+      };
       
       // Gera o Itinerário de Beleza (horários quebrados por serviço)
       let currentOffset = 0;
@@ -198,8 +210,25 @@ export default function BookingConfirmationPage() {
         duration: dur,
         preco: totalPrice,
         assignments: assignments,
-        observacoes: observacoes.trim() // Campo de observações do cliente
+        observacoes: observacoes.trim(), // Campo de observações do cliente
+        // -------------------------------------------------------------
+        // LGPD — Prova de consentimento no ATO do agendamento (contrato)
+        // -------------------------------------------------------------
+        user_lgpd_consent: true,
+        user_lgpd_consent_em: consentimento.accepted_at,
+        user_lgpd_consent_version: consentimento.version,
+        user_lgpd_consent_source: consentimento.source,
+        user_lgpd_consent_ua: consentimento.userAgent,
       };
+
+      // Também atualiza o users.doc com o consentimento mais recente (se usuário autenticado)
+      const { updateUserDoc } = await import('../services/firebase');
+      updateUserDoc(user.uid, {
+        aceitou_lgpd_em: consentimento.accepted_at,
+        aceitou_lgpd_version: consentimento.version,
+        aceitou_lgpd_source: consentimento.source,
+        aceitou_lgpd_ua: consentimento.userAgent
+      }).catch(() => { /* ignore: appointment já tem a prova */ });
 
       const appointmentId = await createAppointment(appointmentData);
       
@@ -221,11 +250,60 @@ export default function BookingConfirmationPage() {
     }
   };
 
+  const buildResumoWhatsAppText = () => {
+    const estName = establishment?.nome || 'Estabelecimento';
+    const dataStr = selectedDate
+      ? format(selectedDate, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })
+      : '';
+    const endStr = selectedDate
+      ? format(addMinutes(selectedDate, totalDuration), 'HH:mm')
+      : '';
+    const servicesStr = (confirmedAppointment?.itinerary || confirmedAppointment?.services || [])
+      .map(it => {
+        const nome = it.service_nome || it.nome || 'Serviço';
+        const prof = it.professional_nome ? `(${it.professional_nome})` : '';
+        const time = it.start_time
+          ? `${format(it.start_time.toDate ? it.start_time.toDate() : new Date(it.start_time), 'HH:mm')} — `
+          : '';
+        return `  • ${time}${nome} ${prof}`.trim();
+      })
+      .join('\n');
+    const totalStr = formatPrice(confirmedAppointment?.total_price ?? totalPrice);
+    const codigo = confirmedAppointment?.id?.slice(0, 8).toUpperCase() || '';
+    const obss = observacoes.trim() ? `\n\n📝 Observações: ${observacoes.trim()}` : '';
+
+    return [
+      `🌸 Confirmação de Agendamento — ${estName}`,
+      codigo ? `🔑 Código: #${codigo}` : '',
+      `📅 Data: ${dataStr} até ${endStr}`,
+      `⏱️ Duração total: ${totalDuration} min`,
+      ``,
+      `🛍️ Serviços:`,
+      servicesStr || '  • (consulta)',
+      ``,
+      `💳 Valor total: ${totalStr}`,
+      obss,
+      ``,
+      `✅ Horário confirmado! Em caso de cancelamento ou reagendamento, me avise com antecedência 💖`
+    ].filter(Boolean).join('\n');
+  };
+
   const handleWhatsApp = () => {
     if (!establishment?.telefone) return;
     const phone = establishment.telefone.replace(/\D/g, '');
-    const text = encodeURIComponent(`Olá! Gostaria de falar sobre meu agendamento na ${establishment.nome}.`);
-    window.open(`https://wa.me/55${phone}?text=${text}`, '_blank');
+    const text = bookingSuccess
+      ? buildResumoWhatsAppText()
+      : `Olá! Gostaria de falar sobre meu agendamento na ${establishment.nome}.`;
+    window.open(`https://wa.me/55${phone}?text=${encodeURIComponent(text)}`, '_blank');
+  };
+
+  const clienteTelefone = user?.telefone || user?.phone || confirmedAppointment?.user_telefone || '';
+  const handleWhatsAppResumoPessoal = () => {
+    if (!clienteTelefone) return;
+    const phone = String(clienteTelefone).replace(/\D/g, '');
+    if (!phone || phone.length < 10) return;
+    const text = buildResumoWhatsAppText();
+    window.open(`https://wa.me/55${phone}?text=${encodeURIComponent(text)}`, '_blank');
   };
 
   const formatPrice = (price) =>
@@ -404,19 +482,40 @@ export default function BookingConfirmationPage() {
           </div>
 
           <div className="mt-10 flex flex-col gap-4">
-            <button
-              onClick={handleWhatsApp}
-              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 py-4 text-sm font-bold text-white transition-all hover:bg-emerald-700 shadow-lg shadow-emerald-100"
-            >
-              <MessageCircle size={20} />
-              <span>Falar com a estética</span>
-            </button>
+            {clienteTelefone && (
+              <button
+                onClick={handleWhatsAppResumoPessoal}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 py-4 text-sm font-bold text-white transition-all hover:bg-emerald-600 shadow-lg shadow-emerald-100 active:scale-[0.99]"
+              >
+                <MessageCircle size={20} />
+                <span>Salvar resumo no meu WhatsApp</span>
+              </button>
+            )}
+
+            {establishment?.telefone && (
+              <button
+                onClick={handleWhatsApp}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-white py-4 text-sm font-bold text-emerald-700 transition-all hover:bg-emerald-50 border-2 border-emerald-200 active:scale-[0.99]"
+              >
+                <MessageCircle size={20} />
+                <span>Falar com a estética via WhatsApp</span>
+              </button>
+            )}
 
             <button
               onClick={() => navigate(`/${slug}/agenda`)}
               className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-100 py-4 text-sm font-bold text-slate-600 transition-all hover:bg-slate-200"
             >
+              <CalendarDays size={18} />
               <span>Ver meus agendamentos</span>
+            </button>
+
+            <button
+              onClick={() => navigate(`/${slug}/agendar`)}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-pink-50 py-4 text-sm font-bold text-pink-700 transition-all hover:bg-pink-100 border-2 border-pink-100"
+            >
+              <PlusCircle size={18} />
+              <span>Agendar outro horário</span>
             </button>
           </div>
         </div>
@@ -552,9 +651,45 @@ export default function BookingConfirmationPage() {
               />
             </div>
 
+            {/* Checkbox LGPD Obrigatório */}
+            <div className="rounded-2xl border-2 border-pink-100 bg-pink-50/40 p-4 space-y-2">
+              <label className="flex items-start gap-3 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={isPolicyAccepted}
+                  onChange={(e) => setIsPolicyAccepted(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 shrink-0 rounded border-pink-300 text-pink-600 focus:ring-pink-500"
+                />
+                <span className="text-xs font-bold leading-snug text-slate-700">
+                  Li e concordo expressamente com a{' '}
+                  <button
+                    type="button"
+                    onClick={() => window.dispatchEvent(new CustomEvent('musa:lgpd', { detail: { open: 'privacy' } }))}
+                    className="font-black text-pink-600 underline underline-offset-2 hover:text-pink-700"
+                  >
+                    Política de Privacidade
+                  </button>{' '}
+                  e os{' '}
+                  <button
+                    type="button"
+                    onClick={() => window.dispatchEvent(new CustomEvent('musa:lgpd', { detail: { open: 'terms' } }))}
+                    className="font-black text-pink-600 underline underline-offset-2 hover:text-pink-700"
+                  >
+                    Termos de Uso
+                  </button>
+                  , autorizando o tratamento dos meus dados (nome, telefone, e-mail e dados de agendamento) conforme a LGPD (Lei 13.709/2018).
+                </span>
+              </label>
+              {!isPolicyAccepted && (
+                <p className="text-[10px] font-black uppercase tracking-widest text-pink-500 ml-7">
+                  ⚠ Aceite obrigatório para confirmar
+                </p>
+              )}
+            </div>
+
             <button
               onClick={handleConfirm}
-              disabled={loading}
+              disabled={loading || !isPolicyAccepted}
               className="group flex w-full items-center justify-center gap-2 rounded-2xl bg-pink-600 py-5 text-base font-black text-white transition-all hover:bg-pink-700 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed shadow-xl shadow-pink-100"
             >
               <span>Confirmar Agora</span>
