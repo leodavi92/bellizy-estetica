@@ -2,44 +2,135 @@ import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, updateDoc, setDoc, Timestamp } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
-import { getMessaging } from "firebase/messaging";
+import { getMessaging, isSupported as isMessagingSupported } from "firebase/messaging";
 import { getFunctions, httpsCallable } from "firebase/functions";
 
-// Configurações do Firebase usando variáveis de ambiente do Vite
-const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID
+const env = (typeof import.meta !== 'undefined' && import.meta.env) || {};
+const overrides = (typeof window !== 'undefined' && window.FIREBASE_CONFIG_OVERRIDE) || {};
+
+const getVar = (key) => {
+  const v = overrides[key] != null ? overrides[key] : env[key];
+  if (typeof v !== 'string') return null;
+  const t = v.trim();
+  if (!t) return null;
+  if (t.startsWith('SUA_') || t.startsWith('SEU_')) return null;
+  return t;
 };
 
-const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
-export const storage = getStorage(app);
-export const messaging = getMessaging(app);
+const REQUIRED_KEYS = [
+  'VITE_FIREBASE_API_KEY',
+  'VITE_FIREBASE_AUTH_DOMAIN',
+  'VITE_FIREBASE_PROJECT_ID',
+  'VITE_FIREBASE_STORAGE_BUCKET',
+  'VITE_FIREBASE_MESSAGING_SENDER_ID',
+  'VITE_FIREBASE_APP_ID',
+];
 
-// Cloud Functions: sa-east1 (configuração do projeto backend)
-const FUNCTIONS_REGION = import.meta.env.VITE_FUNCTIONS_REGION || "southamerica-east1";
-export const functions = getFunctions(app, FUNCTIONS_REGION);
+const missingKeys = REQUIRED_KEYS.filter(k => !getVar(k));
+
+const firebaseConfig = {
+  apiKey:            getVar('VITE_FIREBASE_API_KEY')            || 'placeholder-missing-vite-firebase-api-key',
+  authDomain:        getVar('VITE_FIREBASE_AUTH_DOMAIN')        || 'missing.firebaseapp.com',
+  projectId:         getVar('VITE_FIREBASE_PROJECT_ID')         || 'missing-project-id',
+  storageBucket:     getVar('VITE_FIREBASE_STORAGE_BUCKET')     || 'missing-project-id.appspot.com',
+  messagingSenderId: getVar('VITE_FIREBASE_MESSAGING_SENDER_ID') || '000000000000',
+  appId:             getVar('VITE_FIREBASE_APP_ID')             || '1:000000000000:web:missing',
+};
+
+export const firebaseBootstrapHealthy = missingKeys.length === 0;
+export const firebaseBootstrapMissingKeys = missingKeys.slice();
+export const firebaseBootstrapWarnings = [];
+
+let app = null;
+try {
+  app = initializeApp(firebaseConfig);
+} catch (err) {
+  const msg = err && err.message ? err.message : String(err || 'Erro Firebase desconhecido');
+  firebaseBootstrapWarnings.push(msg);
+  console.error('[firebase.js] Falha ao inicializar Firebase com vars incompletas:', msg);
+  try {
+    app = initializeApp({
+      apiKey: 'placeholder-failsafe-mode',
+      authDomain: 'failsafe.local',
+      projectId: 'musa-agenda-failsafe',
+      storageBucket: 'musa-agenda-failsafe.appspot.com',
+      messagingSenderId: '000000000000',
+      appId: '1:000000000000:web:failsafe',
+    }, 'musa-agenda-failsafe');
+  } catch (_e2) {
+    app = null;
+  }
+}
+
+export const authFailsafe = {
+  healthy: false,
+  missingKeys,
+  errors: firebaseBootstrapWarnings,
+  isMissing: missingKeys.length > 0,
+};
+
+let auth = null;
+try {
+  if (app) {
+    auth = getAuth(app);
+    authFailsafe.healthy = true;
+  }
+} catch (err) {
+  firebaseBootstrapWarnings.push('auth-init: ' + (err && err.message ? err.message : String(err || 'erro auth')));
+  console.warn('[firebase.js] auth não pôde ser inicializado — modo failsafe.');
+}
+export { auth };
+
+let storage = null;
+try {
+  if (app) storage = getStorage(app);
+} catch (_e) { storage = null; }
+export { storage };
+
+const FUNCTIONS_REGION = getVar('VITE_FUNCTIONS_REGION') || "southamerica-east1";
+let functions = null;
+try {
+  if (app) functions = getFunctions(app, FUNCTIONS_REGION);
+} catch (_e) { functions = null; }
+export { functions };
+
 export function callFunction(name, data = {}) {
+  if (!functions) {
+    return Promise.reject(new Error(
+      'Não foi possível conectar às funções do backend. Verifique as variáveis VITE_FIREBASE_* no arquivo `.env.local`.'
+    ));
+  }
   return httpsCallable(functions, name)(data);
 }
 
-// Inicializa o Firestore com persistência de dados local habilitada
-export const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
-});
+let db = null;
+try {
+  if (app) {
+    db = initializeFirestore(app, {
+      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+    });
+  }
+} catch (err) {
+  console.warn('[firebase.js] initializeFirestore falhou:', err && err.message ? err.message : err);
+  db = null;
+}
+export { db };
 
 export const googleProvider = new GoogleAuthProvider();
 
-/**
- * Helpers para escrita em `/users/{uid}` que garantem a atualização automática
- * do campo `last_write_ts` (utilizado pelo rate-limiting Server-Side nas rules).
- *
- * Regras que usam `hasRateLimit()` checam `users.uid.last_write_ts`.
- */
+let messaging = null;
+try {
+  const vapid = getVar('VITE_FIREBASE_VAPID_KEY');
+  if (app && vapid && typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+    isMessagingSupported().then(ok => {
+      if (ok) {
+        try { messaging = getMessaging(app); } catch (_e) { /* noop */ }
+      }
+    }).catch(() => {});
+  }
+} catch (_e) { /* noop */ }
+export { messaging };
+
 export function userDoc(uid) {
   return doc(db, 'users', uid);
 }

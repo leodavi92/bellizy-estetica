@@ -1,5 +1,12 @@
 import React, { createContext, useContext, useEffect, useState, useMemo, useCallback } from 'react';
-import { auth, db, googleProvider } from '../services/firebase';
+import {
+  auth,
+  db,
+  googleProvider,
+  firebaseBootstrapMissingKeys,
+  firebaseBootstrapHealthy,
+  authFailsafe
+} from '../services/firebase';
 import {
   signInWithPopup,
   signOut,
@@ -15,8 +22,116 @@ import {
 import { doc, getDoc, setDoc, collection, addDoc, Timestamp, onSnapshot, updateDoc, query, where, getDocs } from 'firebase/firestore';
 import { buildEstablishmentPayload, normalizeEstablishmentData, generateUniqueSlug } from '../services/establishmentService';
 import { completeProfessionalFirstAccess } from '../services/teamService';
+import { AlertTriangle, Download, Copy, CheckCircle2 } from 'lucide-react';
 
 const AuthContext = createContext();
+
+function FirebaseConfigMissingScreen() {
+  const missing = firebaseBootstrapMissingKeys || [];
+  const [copied, setCopied] = useState(false);
+  const copyModelo = async () => {
+    const modelo = `# ====== Cole ESTES valores no arquivo .env.local na RAIZ do projeto ======
+# Console Firebase → ⚙️ Configurações do projeto → Geral → Seus apps → App Web → firebaseConfig
+VITE_FIREBASE_API_KEY=COLE_AQUI
+VITE_FIREBASE_AUTH_DOMAIN=COLE_AQUI
+VITE_FIREBASE_PROJECT_ID=COLE_AQUI
+VITE_FIREBASE_STORAGE_BUCKET=COLE_AQUI
+VITE_FIREBASE_MESSAGING_SENDER_ID=COLE_AQUI
+VITE_FIREBASE_APP_ID=COLE_AQUI
+
+# (Opcional) FCM Push
+VITE_FIREBASE_VAPID_KEY=
+
+# Functions região
+VITE_FUNCTIONS_REGION=southamerica-east1
+
+# Mercado Pago
+VITE_MERCADO_PAGO_PUBLIC_KEY=
+VITE_SUBSCRIPTION_API_URL=
+`;
+    try {
+      await navigator.clipboard.writeText(modelo);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch (e) {
+      alert('Copie manualmente:\n\n' + modelo);
+    }
+  };
+  return (
+    <div className="min-h-screen w-full flex items-center justify-center bg-gradient-to-br from-pink-50 via-rose-50 to-orange-50 px-4 py-10">
+      <div className="w-full max-w-2xl rounded-[2rem] bg-white shadow-2xl shadow-pink-100/60 ring-1 ring-pink-100 border border-pink-100 overflow-hidden">
+        <div className="bg-gradient-to-r from-amber-500 via-orange-500 to-pink-500 text-white px-6 py-5 flex items-center gap-3">
+          <div className="shrink-0 w-11 h-11 rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center">
+            <AlertTriangle size={22} strokeWidth={2.3} />
+          </div>
+          <div className="min-w-0">
+            <p className="font-black text-lg sm:text-xl leading-tight">
+              Configuração necessária antes de usar o Musa Agenda
+            </p>
+            <p className="text-xs sm:text-sm font-bold text-white/85 leading-relaxed mt-0.5">
+              Firebase está sem as chaves de API. O login e o banco de dados não funcionam sem elas.
+            </p>
+          </div>
+        </div>
+
+        <div className="p-5 sm:p-7 space-y-5 text-slate-700">
+          <div className="rounded-2xl bg-amber-50 border border-amber-200/80 p-4">
+            <p className="text-xs font-black uppercase tracking-wider text-amber-800 mb-2">
+              Passo a passo (3 minutos)
+            </p>
+            <ol className="list-decimal list-inside space-y-2 text-sm font-semibold text-amber-900/90 leading-relaxed">
+              <li>Abra <strong>console.firebase.google.com</strong> e entre no projeto.</li>
+              <li>No menu <strong>⚙️ Configurações do projeto → Geral</strong>, role até <strong>Seus apps</strong> e clique no app Web <code className="px-1.5 py-0.5 rounded-md bg-amber-100 text-[11px] font-black tracking-wider text-amber-900">&lt;/&gt;</code>.</li>
+              <li>Copie os 6 valores de <code className="px-1.5 py-0.5 rounded-md bg-amber-100 text-[11px] font-black text-amber-900">firebaseConfig</code> (apiKey, authDomain, projectId, storageBucket, messagingSenderId, appId).</li>
+              <li>Cole esses 6 valores no arquivo <code className="px-1.5 py-0.5 rounded-md bg-amber-100 text-[11px] font-black tracking-wider text-amber-900">.env.local</code> na PASTA RAIZ do projeto.</li>
+              <li>Reinicie o servidor de desenvolvimento: <code className="px-1.5 py-0.5 rounded-md bg-amber-100 text-[11px] font-black text-amber-900">npm run dev</code>.</li>
+            </ol>
+          </div>
+
+          <div>
+            <p className="text-sm font-black text-slate-900 mb-2 flex items-center gap-2">
+              <span className="text-rose-500">✕</span> Variáveis ausentes detectadas:
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {missing.map(k => (
+                <div key={k} className="flex items-center gap-2 rounded-xl bg-rose-50 border border-rose-100 px-3 py-2.5">
+                  <span className="shrink-0 w-5 h-5 rounded-full bg-rose-500 text-white text-[10px] font-black flex items-center justify-center leading-none">!</span>
+                  <code className="text-[11px] sm:text-xs font-mono font-black text-rose-800 truncate">{k}</code>
+                </div>
+              ))}
+            </div>
+            {authFailsafe?.errors?.length > 0 && (
+              <div className="mt-4 rounded-2xl bg-slate-50 border border-slate-200 p-4">
+                <p className="text-xs font-black uppercase tracking-wider text-slate-500 mb-1">Detalhes técnicos do erro Firebase:</p>
+                {authFailsafe.errors.map((e, i) => (
+                  <pre key={i} className="whitespace-pre-wrap break-words font-mono text-[11px] text-rose-700 leading-relaxed">{e}</pre>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-1">
+            <button
+              onClick={copyModelo}
+              className="flex-1 inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-950 text-white px-5 py-3 text-xs font-black uppercase tracking-widest hover:bg-slate-800 active:scale-[0.98] transition-all shadow-lg shadow-slate-900/20"
+            >
+              {copied ? <CheckCircle2 size={16} /> : <Copy size={16} />}
+              {copied ? 'Modelo copiado!' : 'Copiar modelo .env.local'}
+            </button>
+            <a
+              href="https://console.firebase.google.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white border-2 border-slate-200 text-slate-700 px-5 py-3 text-xs font-black uppercase tracking-widest hover:bg-slate-50 hover:border-slate-300 transition-all"
+            >
+              Abrir Console Firebase
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -403,8 +518,15 @@ export function AuthProvider({ children }) {
     logout,
     updateUserPassword,
     resetPassword,
-    changePassword
+    changePassword,
+    firebaseBootstrapMissingKeys,
+    firebaseBootstrapHealthy,
+    authFailsafe
   }), [user, establishment, loading, loginWithGoogle, signUpWithEmail, signInWithEmail, logout, updateUserPassword, resetPassword, changePassword]);
+
+  if (!firebaseBootstrapHealthy) {
+    return <FirebaseConfigMissingScreen />;
+  }
 
   return (
     <AuthContext.Provider value={value}>
