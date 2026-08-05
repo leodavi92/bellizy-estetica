@@ -71,22 +71,28 @@ function NotificationHandler() {
   useEffect(() => {
     if (!user?.uid) return;
 
-    // Verifica se já temos permissão ou se devemos pedir
-    if (Notification.permission === 'default') {
-      // Pequeno atraso para não assustar o usuário assim que logar
+    const hasNotificationAPI = typeof window !== 'undefined' && 'Notification' in window;
+    if (!hasNotificationAPI) return;
+
+    let permissionStatus = 'default';
+    try { permissionStatus = Notification.permission; } catch (_e) { permissionStatus = 'denied'; }
+
+    if (permissionStatus === 'default') {
       const timer = setTimeout(() => setShowBanner(true), 3000);
       return () => clearTimeout(timer);
     }
 
-    if (Notification.permission === 'granted') {
+    if (permissionStatus === 'granted') {
       requestNotificationPermission(user.uid);
     }
 
-    // Listener para mensagens em primeiro plano
-    const unsubscribe = onMessageListener().then(payload => {
-      // Você pode mostrar um toast customizado aqui se quiser
-      console.log("Notificação recebida:", payload);
+    const unsubscribe = onMessageListener(payload => {
+      console.log("Notificação recebida em primeiro plano:", payload);
     });
+
+    return () => {
+      try { unsubscribe && unsubscribe(); } catch (_e) { /* noop */ }
+    };
 
   }, [user?.uid]);
 

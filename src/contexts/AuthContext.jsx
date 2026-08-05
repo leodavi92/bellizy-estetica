@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useMemo, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import {
   auth,
   db,
@@ -19,7 +19,7 @@ import {
   reauthenticateWithCredential,
   EmailAuthProvider
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, collection, addDoc, Timestamp, onSnapshot, updateDoc, query, where, getDocs } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, addDoc, Timestamp, onSnapshot, updateDoc, query, where, getDocs, limit } from 'firebase/firestore';
 import { buildEstablishmentPayload, normalizeEstablishmentData, generateUniqueSlug } from '../services/establishmentService';
 import { completeProfessionalFirstAccess } from '../services/teamService';
 import { AlertTriangle, Download, Copy, CheckCircle2 } from 'lucide-react';
@@ -137,16 +137,54 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [establishment, setEstablishment] = useState(null);
   const [loading, setLoading] = useState(true);
+  /** Evita race entre onAuthStateChanged e loginWithGoogle/signUp durante criação do perfil */
+  const profileBootstrapRef = useRef(null);
+
+  const createAdminEstablishment = useCallback(async (adminUid, options = {}) => {
+    const uniqueSlug = await generateUniqueSlug(
+      options.slugBase || `estetica-${adminUid.slice(0, 6)}`
+    );
+    const estRef = await addDoc(
+      collection(db, 'establishments'),
+      buildEstablishmentPayload(adminUid, {
+        nome: options.nome || '',
+        slug: uniqueSlug,
+        telefone: options.telefone || '',
+        endereco: options.endereco || '',
+        logo_url: options.photoURL || '',
+        subscription: {
+          status: 'trial',
+          trial_ends_at: Timestamp.fromDate(new Date(Date.now() + 15 * 24 * 60 * 60 * 1000)),
+          plan: 'silver'
+        },
+        setup_steps: {
+          info_basica: !!(options.nome && options.telefone),
+          logo: !!options.photoURL,
+          schedule: false,
+          first_service: false,
+          policy: false
+        },
+        profile_completed: false,
+        createdAt: Timestamp.now()
+      })
+    );
+    return estRef.id;
+  }, []);
 
   // Helper para verificar se um e-mail pertence a um profissional convidado
   const checkProfessionalInvite = useCallback(async (email) => {
     if (!email) return null;
+    if (!db) return null; // failsafe Firebase não inicializado (ainda na tela de setup)
     const cleanEmail = email.trim().toLowerCase();
     console.log("Verificando convite para:", cleanEmail);
     
     try {
       // Tenta buscar pelo campo 'email'
-      const q = query(collection(db, "professionals"), where("email", "==", cleanEmail));
+      const q = query(
+        collection(db, "professionals"),
+        where("email", "==", cleanEmail),
+        limit(2)
+      );
       const querySnapshot = await getDocs(q);
       
       if (!querySnapshot.empty) {
@@ -156,7 +194,11 @@ export function AuthProvider({ children }) {
       }
 
       // Fallback para e-mail com hífen (legado)
-      const qLegacy = query(collection(db, "professionals"), where("e-mail", "==", cleanEmail));
+      const qLegacy = query(
+        collection(db, "professionals"),
+        where("e-mail", "==", cleanEmail),
+        limit(2)
+      );
       const querySnapshotLegacy = await getDocs(qLegacy);
       if (!querySnapshotLegacy.empty) {
         const profDoc = querySnapshotLegacy.docs[0];
@@ -171,6 +213,78 @@ export function AuthProvider({ children }) {
       return null;
     }
   }, []);
+
+  /**
+   * Bootstrap de perfil para usuário recém-autenticado sem documento em users/{uid}.
+   * Ordem garantida:
+   *   1. Verifica convite de profissional (Rules permitem leitura pelo e-mail autenticado)
+   *   2. Cria estabelecimento se admin
+   *   3. Cria users/{uid} já com papel e vínculos finais (sem update de promoção)
+   */
+  const bootstrapNewUserProfile = useCallback(async (firebaseUser, role = 'cliente', options = {}) => {
+    const userRef = doc(db, 'users', firebaseUser.uid);
+    const displayName = options.nome || firebaseUser.displayName || '';
+    const email = firebaseUser.email || options.email || '';
+
+    let finalRole = role;
+    let establishmentId = null;
+    let professionalId = null;
+
+    const professionalData = await checkProfessionalInvite(email);
+
+    if (professionalData) {
+      finalRole = 'staff';
+      establishmentId = professionalData.establishment_id;
+      professionalId = professionalData.id;
+    } else if (role === 'admin') {
+      establishmentId = await createAdminEstablishment(firebaseUser.uid, {
+        nome: options.nomeEstetica || displayName,
+        telefone: options.telefone || '',
+        endereco: options.endereco || '',
+        photoURL: firebaseUser.photoURL || '',
+        slugBase: options.nomeEstetica
+          ? undefined
+          : `estetica-${firebaseUser.uid.slice(0, 6)}`
+      });
+      finalRole = 'admin';
+    } else {
+      finalRole = 'cliente';
+    }
+
+    const userData = {
+      nome: displayName,
+      email,
+      tipo: finalRole,
+      establishment_id: establishmentId,
+      professional_id: professionalId,
+      telefone: options.telefone || '',
+      photoURL: firebaseUser.photoURL || options.photoURL || '',
+      createdAt: new Date().toISOString(),
+      last_write_ts: Timestamp.now(),
+      aceitou_lgpd_em: new Date().toISOString(),
+      aceitou_lgpd_version: 1,
+    };
+
+    await setDoc(userRef, userData);
+    return { uid: firebaseUser.uid, ...userData };
+  }, [checkProfessionalInvite, createAdminEstablishment]);
+
+  const upgradeClienteToAdmin = useCallback(async (firebaseUser, existingData) => {
+    const userRef = doc(db, 'users', firebaseUser.uid);
+    const establishmentId = await createAdminEstablishment(firebaseUser.uid, {
+      photoURL: firebaseUser.photoURL || existingData.photoURL || '',
+      slugBase: `estetica-${firebaseUser.uid.slice(0, 6)}`
+    });
+
+    const updateData = {
+      tipo: 'admin',
+      establishment_id: establishmentId,
+      last_write_ts: Timestamp.now()
+    };
+
+    await updateDoc(userRef, updateData);
+    return { uid: firebaseUser.uid, ...existingData, ...updateData };
+  }, [createAdminEstablishment]);
 
   // Escuta em tempo real para o estabelecimento sempre que o usuário mudar
   useEffect(() => {
@@ -195,237 +309,86 @@ export function AuthProvider({ children }) {
     try {
       const result = await signInWithPopup(auth, googleProvider);
       const userRef = doc(db, 'users', result.user.uid);
-      
       const userSnap = await getDoc(userRef);
 
       if (!userSnap.exists()) {
-        let establishmentId = null;
-        let finalRole = role;
-        let professionalId = null;
-
-        const professionalData = await checkProfessionalInvite(result.user.email);
-
-        if (professionalData) {
-          finalRole = 'staff';
-          establishmentId = professionalData.establishment_id;
-          professionalId = professionalData.id;
-        } else if (role === 'admin') {
-          const uniqueSlug = await generateUniqueSlug(`estetica-${result.user.uid.slice(0, 6)}`);
-          const estRef = await addDoc(
-            collection(db, 'establishments'),
-            buildEstablishmentPayload(result.user.uid, {
-              nome: '',
-              slug: uniqueSlug,
-              logo_url: result.user.photoURL || '',
-              subscription: {
-                status: 'trial',
-                trial_ends_at: Timestamp.fromDate(new Date(Date.now() + 15 * 24 * 60 * 60 * 1000)),
-                plan: 'silver'
-              },
-              setup_steps: {
-                info_basica: false,
-                logo: !!result.user.photoURL,
-                schedule: false,
-                first_service: false,
-                policy: false
-              },
-              profile_completed: false,
-              createdAt: Timestamp.now()
-            })
-          );
-          establishmentId = estRef.id;
-        }
-
-        const userData = {
-          nome: result.user.displayName,
-          email: result.user.email,
-          tipo: finalRole,
-          establishment_id: establishmentId,
-          professional_id: professionalId,
-          telefone: '',
-          photoURL: result.user.photoURL,
-          createdAt: new Date().toISOString(),
-          last_write_ts: Timestamp.now(),
-          aceitou_lgpd_em: new Date().toISOString(),
-          aceitou_lgpd_version: 1,
-        };
-        
-        await setDoc(userRef, userData);
-        const finalUser = { uid: result.user.uid, ...userData };
-        setUser(finalUser);
-        return finalUser;
-      } else {
-        const data = userSnap.data();
-        if (role === 'admin' && data.tipo === 'cliente' && !data.establishment_id) {
-          const uniqueSlug = await generateUniqueSlug(`estetica-${result.user.uid.slice(0, 6)}`);
-          const estRef = await addDoc(
-            collection(db, 'establishments'),
-            buildEstablishmentPayload(result.user.uid, {
-              nome: '',
-              slug: uniqueSlug,
-              logo_url: result.user.photoURL || '',
-              subscription: {
-                status: 'trial',
-                trial_ends_at: Timestamp.fromDate(new Date(Date.now() + 15 * 24 * 60 * 60 * 1000)),
-                plan: 'silver'
-              },
-              setup_steps: {
-                info_basica: false,
-                logo: !!result.user.photoURL,
-                schedule: false,
-                first_service: false,
-                policy: false
-              },
-              profile_completed: false,
-              createdAt: Timestamp.now()
-            })
-          );
-          
-          const updateData = {
-            tipo: 'admin',
-            establishment_id: estRef.id,
-            last_write_ts: Timestamp.now()
-          };
-          
-          await updateDoc(userRef, updateData);
-          const finalUser = { uid: result.user.uid, ...data, ...updateData };
+        const bootstrapPromise = bootstrapNewUserProfile(result.user, role);
+        profileBootstrapRef.current = bootstrapPromise;
+        try {
+          const finalUser = await bootstrapPromise;
           setUser(finalUser);
           return finalUser;
+        } finally {
+          profileBootstrapRef.current = null;
         }
+      }
 
-        const finalUser = { uid: result.user.uid, ...data };
+      const data = userSnap.data();
+      if (role === 'admin' && data.tipo === 'cliente' && !data.establishment_id) {
+        const finalUser = await upgradeClienteToAdmin(result.user, data);
         setUser(finalUser);
         return finalUser;
       }
+
+      const finalUser = { uid: result.user.uid, ...data };
+      setUser(finalUser);
+      return finalUser;
     } catch (error) {
       console.error("Erro ao fazer login com Google:", error);
       throw error;
     }
-  }, [checkProfessionalInvite]);
+  }, [bootstrapNewUserProfile, upgradeClienteToAdmin]);
 
   const signUpWithEmail = useCallback(async (email, password, nome, role = 'cliente', extraData = {}) => {
     try {
       const result = await createUserWithEmailAndPassword(auth, email, password);
       await updateProfile(result.user, { displayName: nome });
-      
-      let establishmentId = null;
-      let finalRole = role;
-      let professionalId = null;
 
-      const professionalData = await checkProfessionalInvite(email);
-      
-      if (professionalData) {
-        finalRole = 'staff';
-        establishmentId = professionalData.establishment_id;
-        professionalId = professionalData.id;
-      } else if (role === 'admin') {
-        const businessName = extraData.nomeEstetica || '';
-        const uniqueSlug = await generateUniqueSlug(
-          businessName ? businessName : `estetica-${result.user.uid.slice(0, 6)}`
-        );
-        const estRef = await addDoc(
-          collection(db, 'establishments'),
-          buildEstablishmentPayload(result.user.uid, {
-            nome: businessName,
-            slug: uniqueSlug,
-            telefone: extraData.telefone || '',
-            endereco: extraData.endereco || '',
-            subscription: {
-              status: 'trial',
-              trial_ends_at: Timestamp.fromDate(new Date(Date.now() + 15 * 24 * 60 * 60 * 1000)),
-              plan: 'silver'
-            },
-            setup_steps: {
-              info_basica: !!(businessName && extraData.telefone),
-              logo: false,
-              schedule: false,
-              first_service: false,
-              policy: false
-            },
-            profile_completed: false,
-            createdAt: Timestamp.now()
-          })
-        );
-        establishmentId = estRef.id;
-      }
-
-      const userData = {
+      const bootstrapPromise = bootstrapNewUserProfile(result.user, role, {
         nome,
         email,
-        tipo: finalRole,
-        establishment_id: establishmentId,
-        professional_id: professionalId,
-        createdAt: new Date().toISOString(),
-        last_write_ts: Timestamp.now(),
-        aceitou_lgpd_em: new Date().toISOString(),
-        aceitou_lgpd_version: 1,
-        ...extraData
-      };
-      
-      await setDoc(doc(db, 'users', result.user.uid), userData);
-      setUser({ uid: result.user.uid, ...userData });
-      
-      return result.user;
+        telefone: extraData?.telefone || '',
+        nomeEstetica: extraData.nomeEstetica || (role === 'admin' ? nome : ''),
+        endereco: extraData.endereco || ''
+      });
+      profileBootstrapRef.current = bootstrapPromise;
+      try {
+        const finalUser = await bootstrapPromise;
+        setUser(finalUser);
+        return result.user;
+      } finally {
+        profileBootstrapRef.current = null;
+      }
     } catch (error) {
       console.error("Erro detalhado no cadastro:", error);
       throw error;
     }
-  }, [checkProfessionalInvite]);
+  }, [bootstrapNewUserProfile]);
 
   const signInWithEmail = useCallback(async (email, password, role = 'cliente') => {
     try {
       const result = await signInWithEmailAndPassword(auth, email, password);
-      
-      // Lógica de Upgrade Automático se ele logar como Admin sendo Cliente
+
       if (role === 'admin') {
         const userRef = doc(db, 'users', result.user.uid);
         const userSnap = await getDoc(userRef);
-        
+
         if (userSnap.exists()) {
           const data = userSnap.data();
-          
-          // Se ele é cliente e não tem estabelecimento, faz o upgrade
+
           if (data.tipo === 'cliente' && !data.establishment_id) {
-            const uniqueSlug = await generateUniqueSlug(`estetica-${result.user.uid.slice(0, 6)}`);
-            const estRef = await addDoc(
-              collection(db, 'establishments'),
-              buildEstablishmentPayload(result.user.uid, {
-                nome: '',
-                slug: uniqueSlug,
-                subscription: {
-                  status: 'trial',
-                  trial_ends_at: Timestamp.fromDate(new Date(Date.now() + 15 * 24 * 60 * 60 * 1000)),
-                  plan: 'silver'
-                },
-                setup_steps: {
-                  info_basica: false,
-                  logo: false,
-                  schedule: false,
-                  first_service: false,
-                  policy: false
-                },
-                profile_completed: false,
-                createdAt: Timestamp.now()
-              })
-            );
-            
-            const updateData = {
-              tipo: 'admin',
-              establishment_id: estRef.id
-            };
-            
-            await updateDoc(userRef, updateData);
-            setUser({ uid: result.user.uid, ...data, ...updateData });
+            const finalUser = await upgradeClienteToAdmin(result.user, data);
+            setUser(finalUser);
           }
         }
       }
-      
+
       return result.user;
     } catch (error) {
       console.error("Erro ao fazer login:", error);
       throw error;
     }
-  }, []);
+  }, [upgradeClienteToAdmin]);
 
   const resetPassword = useCallback((email) => {
     return sendPasswordResetEmail(auth, email);
@@ -451,7 +414,7 @@ export function AuthProvider({ children }) {
         if (firebaseUser) {
           const userRef = doc(db, 'users', firebaseUser.uid);
           let userSnap;
-          
+
           try {
             userSnap = await getDoc(userRef);
           } catch (error) {
@@ -468,11 +431,27 @@ export function AuthProvider({ children }) {
             return;
           }
 
+          if (!userSnap.exists() && profileBootstrapRef.current) {
+            try {
+              await profileBootstrapRef.current;
+              userSnap = await getDoc(userRef);
+            } catch (bootstrapErr) {
+              console.error("Erro aguardando bootstrap de perfil:", bootstrapErr);
+            }
+          }
+
           if (userSnap.exists()) {
             const data = userSnap.data();
             setUser({ uid: firebaseUser.uid, ...data });
           } else {
-            console.log("Documento do usuário não encontrado no onAuthStateChanged. Aguardando criação...");
+            setUser({
+              uid: firebaseUser.uid,
+              nome: firebaseUser.displayName || '',
+              email: firebaseUser.email || '',
+              tipo: 'cliente',
+              photoURL: firebaseUser.photoURL || '',
+              _profilePending: true
+            });
           }
         } else {
           setUser(null);

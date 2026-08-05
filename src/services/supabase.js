@@ -3,11 +3,19 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn('Supabase URL ou Anon Key não configurados no arquivo .env');
+let _client = null;
+
+export function getSupabase() {
+  if (_client) return _client;
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.warn('Supabase URL ou Anon Key não configurados no arquivo .env (VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY). Upload de arquivos ficará desabilitado.');
+    return null;
+  }
+  _client = createClient(supabaseUrl, supabaseAnonKey);
+  return _client;
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = getSupabase();
 
 /**
  * Faz upload de um arquivo para o Supabase Storage
@@ -18,10 +26,13 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
  */
 export const uploadToSupabase = async (file, bucket, path) => {
   try {
+    const client = getSupabase();
+    if (!client) {
+      throw new Error('Supabase não configurado. Defina VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY no arquivo .env.');
+    }
     const targetBucket = bucket.trim();
-    
-    // Tenta o upload
-    const { data, error } = await supabase.storage
+
+    const { data, error } = await client.storage
       .from(targetBucket)
       .upload(path, file, {
         cacheControl: '3600',
@@ -30,13 +41,12 @@ export const uploadToSupabase = async (file, bucket, path) => {
       });
 
     if (error) {
-      // Se der erro, vamos listar os buckets para ajudar o usuário
-      const { data: buckets } = await supabase.storage.listBuckets();
+      const { data: buckets } = await client.storage.listBuckets();
       console.error('Buckets encontrados no seu projeto:', buckets?.map(b => b.name));
       throw error;
     }
 
-    const { data: { publicUrl } } = supabase.storage
+    const { data: { publicUrl } } = client.storage
       .from(bucket)
       .getPublicUrl(data.path);
 

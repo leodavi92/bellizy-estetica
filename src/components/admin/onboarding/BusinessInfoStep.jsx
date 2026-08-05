@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Store, Phone, ArrowRight, Sparkles } from 'lucide-react';
 import { db } from '../../../services/firebase';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, updateDoc, Timestamp } from 'firebase/firestore';
 import { motion } from 'framer-motion';
 import { generateUniqueSlug } from '../../../services/establishmentService';
 import { maskPhone, validatePhone } from '../../../utils/formatters';
@@ -31,7 +31,8 @@ export default function BusinessInfoStep({ establishment, onComplete }) {
         slug: uniqueSlug,
         telefone: formData.telefone,
         phone: formData.telefone,
-        'setup_steps.info_basica': true
+        'setup_steps.info_basica': true,
+        last_write_ts: Timestamp.now()
       });
       if (onComplete) onComplete();
     } catch (error) {

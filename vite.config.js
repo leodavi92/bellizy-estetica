@@ -43,6 +43,25 @@ export default defineConfig({
       }
     })
   ],
+  server: {
+    port: 5173,
+    strictPort: false,
+    open: true,
+    host: true,
+    cors: true,
+    hmr: {
+      overlay: true
+    },
+    watch: {
+      usePolling: true,
+      interval: 500
+    }
+  },
+  preview: {
+    port: 4173,
+    strictPort: false,
+    host: true
+  },
   build: {
     chunkSizeWarningLimit: 3000, // Aumenta o limite de aviso para 3000kb
     rollupOptions: {

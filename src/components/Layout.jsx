@@ -4,7 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { ArrowLeftRight, LogOut, User, Calendar, Home, Phone, MessageCircleMore, Bell, X } from 'lucide-react';
 import { maskPhone, validatePhone } from '../utils/formatters';
 import InstallPWA from './InstallPWA';
-import { doc, collection, query, where, onSnapshot } from 'firebase/firestore';
+import { doc, collection, query, where, onSnapshot, updateDoc } from 'firebase/firestore';
 import { db, updateUserDoc } from '../services/firebase';
 import { getEstablishmentBySlug, getWhatsAppUrl } from '../services/establishmentService';
 import { getMyAppointments } from '../services/appointmentService';
@@ -106,18 +106,6 @@ export default function Layout({ children }) {
   };
 
   const isAdminRoute = location.pathname === '/admin';
-
-  if (isAdminRoute) {
-    return (
-      <div className="min-h-screen bg-gray-50/50 font-sans">
-        <main className="flex-1 w-full">
-          {children}
-        </main>
-        <InstallPWA />
-      </div>
-    );
-  }
-
   const isClientView =
     location.pathname !== '/' &&
     location.pathname !== '/login' &&
@@ -125,7 +113,13 @@ export default function Layout({ children }) {
 
   const cleanSlug = String(currentSlug || '').replace('estetica/', '');
 
+  // ========== Hooks de cliente (DEPOIS de todos os useState mas ANTES de qualquer early return!) ==========
+  // IMPORTANTE: Rules of Hooks -> TODOS os hooks devem ser chamados SEMPRE na mesma ordem.
+  // Não podemos ter early return de admin ANTES dos useEffects abaixo, pois
+  // quando o usuário navega cliente→admin, o React detecta "fewer hooks" e crasha.
+
   useEffect(() => {
+    if (isAdminRoute) return; // Admin não usa
     if (!isClientView || !user?.uid || !cleanSlug) return;
     try {
       const raw = localStorage.getItem(`seen_client_reminders_${user.uid}_${cleanSlug}`);
@@ -134,9 +128,10 @@ export default function Layout({ children }) {
     } catch {
       setSeenClientReminderIds([]);
     }
-  }, [isClientView, user?.uid, cleanSlug]);
+  }, [isAdminRoute, isClientView, user?.uid, cleanSlug]);
 
   useEffect(() => {
+    if (isAdminRoute) return;
     if (!isClientView || !user?.uid || !cleanSlug) return;
 
     let active = true;
@@ -162,9 +157,10 @@ export default function Layout({ children }) {
     return () => {
       active = false;
     };
-  }, [isClientView, user?.uid, cleanSlug]);
+  }, [isAdminRoute, isClientView, user?.uid, cleanSlug]);
 
   useEffect(() => {
+    if (isAdminRoute) return;
     if (!isClientView || !user?.uid || !currentEstablishmentId) return;
 
     const q = query(
@@ -184,13 +180,28 @@ export default function Layout({ children }) {
     });
 
     return () => unsubscribe();
-  }, [isClientView, user?.uid, currentEstablishmentId]);
+  }, [isAdminRoute, isClientView, user?.uid, currentEstablishmentId]);
 
   useEffect(() => {
+    if (isAdminRoute) return;
     if (!isClientView || !user?.uid) return;
     const id = setInterval(() => setNowTick(Date.now()), 60 * 1000);
     return () => clearInterval(id);
-  }, [isClientView, user?.uid]);
+  }, [isAdminRoute, isClientView, user?.uid]);
+
+  // ========== ==========
+
+  // RENDER ADMIN — AQUI é o ponto seguro, porque todos os hooks já foram chamados
+  if (isAdminRoute) {
+    return (
+      <div className="min-h-screen bg-gray-50/50 font-sans">
+        <main className="flex-1 w-full">
+          {children}
+        </main>
+        <InstallPWA />
+      </div>
+    );
+  }
 
   const clientReminderNotifications = (() => {
     if (!isClientView || !user?.uid) return [];

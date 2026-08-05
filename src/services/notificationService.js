@@ -1,4 +1,4 @@
-import { db, messaging, updateUserDocRef } from './firebase';
+import { db, updateUserDocRef, getMessagingSafe, hasVapidKey } from './firebase';
 import { collection, addDoc, Timestamp, doc, getDoc, setDoc } from 'firebase/firestore';
 import { getToken, onMessage } from 'firebase/messaging';
 import { format } from 'date-fns';
@@ -41,12 +41,32 @@ function notifId(estId, action, { appointmentId = null, userId = null, professio
  */
 export const requestNotificationPermission = async (userId) => {
   try {
+    if (!hasVapidKey) {
+      console.info("[FCM] VAPID_KEY não configurada no .env. Notificações push desativadas (não há erro).");
+      return null;
+    }
+
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      console.info("[FCM] Browser não suporta Notificações.");
+      return null;
+    }
+
     const permission = await Notification.requestPermission();
     
     if (permission === 'granted') {
-      const token = await getToken(messaging, {
-        vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY // Você precisará gerar isso no Console do Firebase
-      });
+      const messagingInstance = await getMessagingSafe();
+      if (!messagingInstance) {
+        console.warn("[FCM] messaging não está disponível neste ambiente (ex: SSR, SW indisponível).");
+        return null;
+      }
+
+      const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
+      if (!vapidKey) {
+        console.warn("[FCM] VAPID_KEY faltando em runtime.");
+        return null;
+      }
+
+      const token = await getToken(messagingInstance, { vapidKey });
 
       if (token && userId) {
         console.log("Token FCM gerado:", token);
@@ -56,16 +76,13 @@ export const requestNotificationPermission = async (userId) => {
         if (userSnap.exists()) {
           const existingTokens = Array.isArray(userSnap.data().fcmTokens) ? userSnap.data().fcmTokens : [];
 
-          // A8: DEDUPLICAÇÃO: só salva se o token NÃO existir no array.
           if (existingTokens.includes(token)) {
             console.log("Token FCM já cadastrado previamente. Nenhuma alteração feita.");
           } else {
-            // Limpeza leve: mantém só os últimos 10 tokens (múltiplos dispositivos).
             const pruned = existingTokens.slice(-9);
             await updateUserDocRef(userRef, {
               fcmTokens: [...pruned, token],
-              pushEnabled: true,
-              updatedAt: Timestamp.now()
+              pushEnabled: true
             });
             console.log("Token FCM registrado no Firestore para o usuário:", userId);
           }
@@ -85,14 +102,31 @@ export const requestNotificationPermission = async (userId) => {
 
 /**
  * Escuta mensagens quando o app está em primeiro plano
+ * Retorna uma função de unsubscribe (ou null se FCM indisponível)
  */
-export const onMessageListener = () =>
-  new Promise((resolve) => {
-    onMessage(messaging, (payload) => {
-      console.log("Mensagem recebida em primeiro plano:", payload);
-      resolve(payload);
-    });
-  });
+export const onMessageListener = (onPayload) => {
+  if (!hasVapidKey) {
+    return () => {};
+  }
+
+  let unsubscribe = () => {};
+  getMessagingSafe().then(messagingInstance => {
+    if (messagingInstance) {
+      try {
+        unsubscribe = onMessage(messagingInstance, (payload) => {
+          console.log("Mensagem recebida em primeiro plano:", payload);
+          if (typeof onPayload === 'function') onPayload(payload);
+        });
+      } catch (_e) {
+        console.warn("[FCM] Não foi possível anexar onMessage:", _e);
+      }
+    }
+  }).catch(() => {});
+
+  return () => {
+    try { unsubscribe && unsubscribe(); } catch (_e) { /* noop */ }
+  };
+};
 
 /**
  * Envia uma notificação interna para o profissional

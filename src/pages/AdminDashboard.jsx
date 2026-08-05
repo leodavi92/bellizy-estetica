@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { db, storage } from '../services/firebase';
 import { 
@@ -212,7 +212,7 @@ export default function AdminDashboard() {
   const [forceShowOnboarding, setForceShowOnboarding] = useState(false);
 
   // B-11: Desfazer cancelamento appointment (janela 2 min)
-  const undoLastCancelRef = React.useRef(null);
+  const undoLastCancelRef = useRef(null);
   const [pendingCancelUndo, setPendingCancelUndo] = useState(null); // { appointmentId, expiresAt }
   const [, forceUndoTick] = useState(0);
 
@@ -852,6 +852,13 @@ export default function AdminDashboard() {
   const setupProgressPercent = Math.round((setupCompleted / SETUP_STEPS_KEYS.length) * 100);
   const isSetupIncomplete = setupCompleted < SETUP_STEPS_KEYS.length;
 
+  // States usados nos checks de lançamento (declarados antes para evitar TDZ)
+  const [businessSettings, setBusinessSettings] = useState({
+    horario_inicio: '08:00',
+    horario_fim: '18:00',
+    dias_trabalho: [1, 2, 3, 4, 5, 6] // Seg a Sab
+  });
+
   // L-02: Verifica gaps do cadastro que quebram UX ou lançamento
   // (avisa o admin para não lançar com dados faltando)
   const missingLaunchChecks = (() => {
@@ -865,17 +872,12 @@ export default function AdminDashboard() {
     if (!end || !String(end.rua || end.logradouro || end || '').trim()) list.push({ key: 'end', label: 'Endereço não cadastrado', tip: 'Clientes não sabem onde é o atendimento presencial.', goto: 'config', cta: 'Adicionar endereço' });
     if (!establishment?.logo_url && !establishment?.photoURL) list.push({ key: 'logo', label: 'Logo/Foto não cadastrada', tip: 'Marca forte = mais agendamentos no minisite.', goto: 'config', cta: 'Enviar logo' });
     if (!services || services.length === 0) list.push({ key: 'svc', label: 'Nenhum serviço cadastrado', tip: 'Sem serviços, ninguém consegue agendar.', goto: 'servicos', cta: 'Cadastrar serviços' });
-    if (!allProfessionals || allProfessionals.length === 0) list.push({ key: 'team', label: 'Nenhum profissional cadastrado', tip: 'Sem profissional, serviços não têm horário disponível.', goto: 'equipe', cta: 'Adicionar equipe' });
+    if (!team || team.length === 0) list.push({ key: 'team', label: 'Nenhum profissional cadastrado', tip: 'Sem profissional, serviços não têm horário disponível.', goto: 'equipe', cta: 'Adicionar equipe' });
     const bs = businessSettings || {};
     if (!bs.horario_inicio || !bs.horario_fim) list.push({ key: 'sched', label: 'Horário de atendimento padrão não configurado', tip: 'Sem horário, a busca de vagas não funciona.', goto: 'horarios', cta: 'Configurar horários' });
     return list;
   })();
   const missingLaunchCount = missingLaunchChecks.length;
-  const [businessSettings, setBusinessSettings] = useState({
-    horario_inicio: '08:00',
-    horario_fim: '18:00',
-    dias_trabalho: [1, 2, 3, 4, 5, 6] // Seg a Sab
-  });
   const [profileInfo, setProfileInfo] = useState({
     nome: '',
     endereco: '',
@@ -1218,7 +1220,7 @@ export default function AdminDashboard() {
   }
 
   // Countdown regressivo para o banner do UNDO (1s tick, limpa quando expira)
-  React.useEffect(() => {
+  useEffect(() => {
     if (!pendingCancelUndo) return;
     const t = setInterval(() => {
       const remaining = pendingCancelUndo.expiresAt - Date.now();

@@ -119,16 +119,30 @@ export { db };
 export const googleProvider = new GoogleAuthProvider();
 
 let messaging = null;
+let messagingReadyPromise = Promise.resolve(null);
+export const hasVapidKey = Boolean(getVar('VITE_FIREBASE_VAPID_KEY'));
+
 try {
   const vapid = getVar('VITE_FIREBASE_VAPID_KEY');
   if (app && vapid && typeof window !== 'undefined' && 'serviceWorker' in navigator) {
-    isMessagingSupported().then(ok => {
-      if (ok) {
-        try { messaging = getMessaging(app); } catch (_e) { /* noop */ }
-      }
-    }).catch(() => {});
+    messagingReadyPromise = isMessagingSupported()
+      .then(ok => {
+        if (ok) {
+          try {
+            messaging = getMessaging(app);
+            return messaging;
+          } catch (_e) { /* noop */ }
+        }
+        return null;
+      })
+      .catch(() => null);
   }
 } catch (_e) { /* noop */ }
+
+export function getMessagingSafe() {
+  return messagingReadyPromise;
+}
+
 export { messaging };
 
 export function userDoc(uid) {

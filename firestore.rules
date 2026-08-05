@@ -11,21 +11,30 @@ service cloud.firestore {
     }
 
     function getUserData() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data
+        : null;
     }
 
     function userType() {
-      return isSignedIn() ? getUserData().tipo : null;
+      return isSignedIn() && getUserData() != null ? getUserData().tipo : null;
     }
 
     function userEstablishmentId() {
-      return isSignedIn() ? getUserData().establishment_id : null;
+      return isSignedIn() && getUserData() != null ? getUserData().establishment_id : null;
+    }
+
+    function isOwnerOfEstablishment(estId) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/establishments/$(estId))
+        && get(/databases/$(database)/documents/establishments/$(estId)).data.owner_id == request.auth.uid;
     }
 
     function isAdminOrStaff(targetEstablishmentId) {
-      return isSignedIn() &&
-        userType() in ['admin', 'staff'] &&
-        userEstablishmentId() == targetEstablishmentId;
+      return isSignedIn() && (
+        (targetEstablishmentId != null && isOwnerOfEstablishment(targetEstablishmentId)) ||
+        (userType() in ['admin', 'staff'] && userEstablishmentId() == targetEstablishmentId)
+      );
     }
 
     function isOwnerAppointment() {
@@ -36,8 +45,26 @@ service cloud.firestore {
       return isSignedIn() && request.resource.data.user_id == request.auth.uid;
     }
 
-    function hasEstablishmentQuery() {
-      return request.query.limit <= 500;
+    // Firestore Rules expõem apenas limit/offset/orderBy em request.query — NÃO where.
+    // Leituras de catálogo usam regras por documento alinhadas aos filtros do app.
+    function isSelfProfessionalInvite() {
+      return isSignedIn()
+        && request.auth.token.email != null
+        && (
+          resource.data.email == request.auth.token.email
+          || resource.data.get('e-mail', '') == request.auth.token.email
+        );
+    }
+
+    function isPublicCatalogDoc() {
+      return resource.data.establishment_id != null
+        && resource.data.establishment_id.size() > 0
+        && resource.data.establishment_id.size() <= 120;
+    }
+
+    function changedKeysOnlyAllowed(allowedKeys) {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .toSet().difference(allowedKeys.toSet()).size() == 0;
     }
 
     // ============================================================
@@ -59,23 +86,47 @@ service cloud.firestore {
       return value is string && value.size() >= min && value.size() <= max;
     }
 
-    // Garante que o documento só tem um conjunto de campos permitidos (whitelist)
-    // Previne DoS com campos arbitrários gigantes.
     function onlyAllowedKeys(data, allowedKeys) {
       return data.keys().toSet().difference(allowedKeys.toSet()).size() == 0;
     }
 
     // Validacoes individuais de campos imutaveis (nao podem ser alterados por user comum)
     // Bloqueia mudancas em `tipo` (cliente -> admin) e `establishment_id` (sequestro de estab)
-    function sensitiveUserFieldsUnchanged() {
-      return resource.data.tipo == request.resource.data.tipo &&
-             resource.data.establishment_id == request.resource.data.establishment_id;
+    // EXCECAO: permite upgrade cliente->admin se establishment_id sair de null e for do usuario
+    function sensitiveUserFieldsUnchangedOrValidPromotion() {
+      let oldTipo = resource.data.tipo is string ? resource.data.tipo : null;
+      let newTipo = request.resource.data.tipo is string ? request.resource.data.tipo : null;
+      let oldEstab = resource.data.establishment_id is string ? resource.data.establishment_id : null;
+      let newEstab = request.resource.data.establishment_id is string ? request.resource.data.establishment_id : null;
+      let sameFields = (oldTipo == newTipo && oldEstab == newEstab);
+      let validPromotion = (oldTipo == 'cliente')
+        && (newTipo == 'admin')
+        && (oldEstab == null)
+        && (newEstab != null)
+        && isOwnerOfEstablishment(newEstab);
+      return sameFields || validPromotion;
     }
 
     // Valida que os campos de subscription e plano NÃO podem ser alterados pelo DONO do estab (apenas Cloud Functions com admin SDK pode mudar)
+    // ATENÇÃO: Firestore Rules NÃO suporta == profundo em objetos/arrays.
+    // Por isso comparamos apenas os campos escalares de topo que realmente definem o plano.
+    // Campos objeto subscription.details/status permitem mudança (apenas internamente).
     function subscriptionFieldsUnchanged() {
-      return resource.data.plan == request.resource.data.plan &&
-             resource.data.subscription == request.resource.data.subscription;
+      let oldPlan = (resource.data.plan is string) ? resource.data.plan : null;
+      let newPlan = (request.resource.data.plan is string) ? request.resource.data.plan : null;
+      let oldStatus = (resource.data.subscription is map) && (resource.data.subscription.status is string)
+        ? resource.data.subscription.status
+        : null;
+      let newStatus = (request.resource.data.subscription is map) && (request.resource.data.subscription.status is string)
+        ? request.resource.data.subscription.status
+        : null;
+      let oldPlanId = (resource.data.subscription is map) && (resource.data.subscription.planId is string)
+        ? resource.data.subscription.planId
+        : null;
+      let newPlanId = (request.resource.data.subscription is map) && (request.resource.data.subscription.planId is string)
+        ? request.resource.data.subscription.planId
+        : null;
+      return oldPlan == newPlan && oldStatus == newStatus && oldPlanId == newPlanId;
     }
 
     // ============================================================
@@ -93,6 +144,7 @@ service cloud.firestore {
     function hasRateLimit() {
       return (isSignedIn() && userType() in ['admin', 'staff']) || (
         isSignedIn() && (
+          getUserData() == null ||
           getUserData().last_write_ts == null ||
           request.time.toMillis() - getUserData().last_write_ts.toMillis() >= 6000
         )
@@ -109,33 +161,54 @@ service cloud.firestore {
       allow create: if isSignedIn() && request.auth.uid == userId
         && onlyAllowedKeys(request.resource.data, [
              'uid', 'nome', 'email', 'tipo', 'estabelecimento_ids',
-             'establishment_id', 'avatar_url', 'fcm_tokens',
+             'establishment_id', 'avatar_url', 'fcm_tokens', 'fcmTokens', 'pushEnabled',
              'createdAt', 'last_write_ts', 'telefone', 'owner_email',
              'requirePasswordChange', 'aceitou_lgpd_em', 'aceitou_lgpd_version',
-             'professional_id', 'saved_establishments', 'last_establishment_slug'
+             'professional_id', 'saved_establishments', 'last_establishment_slug',
+             'photoURL', 'updatedAt'
            ]);
       allow update, delete: if isSignedIn() && request.auth.uid == userId
-        && sensitiveUserFieldsUnchanged()
+        && sensitiveUserFieldsUnchangedOrValidPromotion()
         && onlyAllowedKeys(request.resource.data, [
              'uid', 'nome', 'email', 'tipo', 'estabelecimento_ids',
-             'establishment_id', 'avatar_url', 'fcm_tokens',
+             'establishment_id', 'avatar_url', 'fcm_tokens', 'fcmTokens', 'pushEnabled',
              'createdAt', 'last_write_ts', 'telefone', 'owner_email',
              'requirePasswordChange', 'aceitou_lgpd_em', 'aceitou_lgpd_version',
-             'professional_id', 'saved_establishments', 'last_establishment_slug'
+             'professional_id', 'saved_establishments', 'last_establishment_slug',
+             'photoURL', 'updatedAt'
            ]);
     }
 
     // ============================================================
     // 2. ESTABELECIMENTOS — Leitura pública (minisite). Escrita só dono.
+    // Campos permitidos no onboarding/configuração (bloqueia subscrição)
     // ============================================================
+
+    function allowedEstablishmentKeys() {
+      return [
+        'name','nome','slug','telefone','phone','owner_id',
+        'endereco','address','descricao','description','photoURL','logo_url','banner_url',
+        'instagram','horario_funcionamento','politica_cancelamento',
+        'createdAt','profile_completed','setup_steps',
+        'settings','business_settings','minisite_settings',
+        'horario_inicio','horario_fim','dias_trabalho',
+        'professionalName','especialidades',
+        'aceita_cartao','aceita_pix','outras_formas_pagamento',
+        'tem_estacionamento','tem_wifi','publico_alvo','ambiente',
+        'plan','subscription','last_write_ts'
+      ];
+    }
 
     match /establishments/{estId} {
       allow read: if true;
       allow create: if isSignedIn() && request.resource.data.owner_id == request.auth.uid
-        && stringLen(request.resource.data.name, 2, 120)
+        && stringLen(request.resource.data.name, 0, 120)
+        && onlyAllowedKeys(request.resource.data, allowedEstablishmentKeys())
         && hasRateLimit();
       allow update, delete: if isSignedIn() && resource.data.owner_id == request.auth.uid
-        && subscriptionFieldsUnchanged();
+        && subscriptionFieldsUnchanged()
+        && changedKeysOnlyAllowed(allowedEstablishmentKeys())
+        && hasRateLimit();
     }
 
     // ============================================================
@@ -143,7 +216,8 @@ service cloud.firestore {
     // ============================================================
 
     match /services/{serviceId} {
-      allow read: if hasEstablishmentQuery();
+      // Catálogo público por estabelecimento (minisite / agendamento sem login)
+      allow read: if isPublicCatalogDoc();
       allow create: if isAdminOrStaff(request.resource.data.establishment_id)
         && userType() == 'admin'
         && stringLen(request.resource.data.nome, 2, 120)
@@ -167,7 +241,8 @@ service cloud.firestore {
     // ============================================================
 
     match /professionals/{profId} {
-      allow read: if hasEstablishmentQuery();
+      // Equipe pública no agendamento OU convite vinculado ao e-mail autenticado
+      allow read: if isPublicCatalogDoc() || isSelfProfessionalInvite();
       allow create: if isAdminOrStaff(request.resource.data.establishment_id)
         && userType() == 'admin'
         && stringLen(request.resource.data.nome, 2, 120)
@@ -184,6 +259,7 @@ service cloud.firestore {
 
     // ============================================================
     // 5. NOTIFICAÇÕES — Anti-Spam + Validação
+    //    Campos suportados: title + message (código novo) OU body (legado)
     // ============================================================
 
     match /notifications/{notifId} {
@@ -194,7 +270,11 @@ service cloud.firestore {
       );
       allow create: if isAdminOrStaff(request.resource.data.establishment_id)
         && stringLen(request.resource.data.title, 2, 200)
-        && stringLen(request.resource.data.body, 0, 2000)
+        && (
+             // Suporta tanto o campo `message` (novo) quanto `body` (legado)
+             (request.resource.data.message is string && stringLen(request.resource.data.message, 1, 2000)) ||
+             (request.resource.data.body is string && stringLen(request.resource.data.body, 0, 2000))
+           )
         && hasRateLimit();
       allow update, delete: if isSignedIn() && (
         (isAdminOrStaff(resource.data.establishment_id)) ||
@@ -226,14 +306,22 @@ service cloud.firestore {
 
     // ============================================================
     // 7. TRANSAÇÕES (Financeiro) — Validação Server-Side
+    //    Campos: amount (legado) OU total_value (novo/padrão real do app)
     // ============================================================
 
     match /transactions/{txId} {
       allow read: if isAdminOrStaff(resource.data.establishment_id);
       allow create: if isAdminOrStaff(request.resource.data.establishment_id)
-        && request.resource.data.amount is number
-        && request.resource.data.amount >= -999999.99   // reembolso pode ser negativo, mas limitado
-        && request.resource.data.amount <= 999999.99
+        && (
+             // Campo antigo (amount) OU novo campo (total_value) — ambos devem ser números válidos
+             (request.resource.data.amount is number &&
+              request.resource.data.amount >= -999999.99 &&
+              request.resource.data.amount <= 999999.99)
+             ||
+             (request.resource.data.total_value is number &&
+              request.resource.data.total_value >= -999999.99 &&
+              request.resource.data.total_value <= 999999.99)
+           )
         && (
              request.resource.data.description == null ||
              stringLen(request.resource.data.description, 0, 500)
